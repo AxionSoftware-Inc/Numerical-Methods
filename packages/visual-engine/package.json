@@ -1,0 +1,15 @@
+{
+  "name": "@methodslab/visual-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./core": "./src/core/index.ts",
+    "./presets": "./src/presets/index.ts",
+    "./react": "./src/react/index.ts"
+  },
+  "peerDependencies": {
+    "react": "19.2.4",
+    "three": "^0.184.0"
+  }
+}
