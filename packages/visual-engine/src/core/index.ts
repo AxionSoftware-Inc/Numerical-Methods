@@ -1,6 +1,5 @@
-export * from "./define";
-export * from "./math";
-export * from "./layers";
-export * from "./scene";
-export * from "./trace";
+export * from "./color";
+export * from "./geometry";
+export * from "./multi-integral";
+export * from "./scene-objects";
 export type * from "./types";

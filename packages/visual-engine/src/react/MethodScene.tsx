@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import {
   addScaled,
   amplifyError,
@@ -14,8 +13,10 @@ import {
   fieldSegment,
   fieldSamples,
   mergeLayerSpec,
-} from "../core";
-import type { EngineStyle, ExampleSpec, LayerSpec, MethodSpec, Point, SceneFrame, TraceResult } from "../core";
+} from "@methodslab/methods-engine/core";
+import type { EngineStyle, ExampleSpec, LayerSpec, MethodSpec, Point, SceneFrame, TraceResult } from "@methodslab/methods-engine/core";
+import type { ProjectionSegmentTrace } from "@methodslab/methods-engine/core";
+import { VisualViewportControls } from "./VisualViewportControls";
 
 type PickPayload = {
   title: string;
@@ -34,7 +35,7 @@ type SceneRuntime = {
   scene: THREE.Scene;
   contentGroup: THREE.Group;
   camera: THREE.PerspectiveCamera;
-  controls: OrbitControls;
+  controls: VisualViewportControls;
   tooltip: HTMLDivElement;
   observer: ResizeObserver;
   raycaster: THREE.Raycaster;
@@ -56,6 +57,7 @@ export type MethodSceneProps = {
   example: ExampleSpec;
   trace: TraceResult;
   comparisonTraces: ComparisonTrace[];
+  projectionSegments?: ProjectionSegmentTrace[];
   layers: Partial<LayerSpec>;
   style?: Partial<EngineStyle>;
   className?: string;
@@ -66,6 +68,7 @@ export function MethodScene({
   example,
   trace,
   comparisonTraces,
+  projectionSegments = [],
   layers: layerOverrides,
   style: styleOverrides,
   className,
@@ -113,21 +116,15 @@ export function MethodScene({
     camera.position.set(4, -5, 3.2);
     camera.lookAt(0, 0, 0);
 
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.08;
-    controls.enablePan = true;
-    controls.enableZoom = false;
-    controls.screenSpacePanning = true;
-    controls.mouseButtons = {
-      LEFT: THREE.MOUSE.PAN,
-      MIDDLE: THREE.MOUSE.DOLLY,
-      RIGHT: THREE.MOUSE.ROTATE,
-    };
-    controls.touches = {
-      ONE: THREE.TOUCH.PAN,
-      TWO: THREE.TOUCH.DOLLY_PAN,
-    };
+    const controls = new VisualViewportControls({
+      camera,
+      element: renderer.domElement,
+      target: new THREE.Vector3(0, 0, 0),
+      minDistance: 1.8,
+      maxDistance: 12,
+      primaryAction: "pan",
+      wheelAction: "orbit",
+    });
     controls.update();
 
     const observer = new ResizeObserver(() => {
@@ -163,17 +160,6 @@ export function MethodScene({
       renderer.domElement.style.cursor = "grab";
     };
 
-    const onPointerDown = (event: PointerEvent) => {
-      renderer.domElement.focus();
-      renderer.domElement.style.cursor = "grabbing";
-      controls.mouseButtons.LEFT = event.shiftKey || event.metaKey || event.altKey ? THREE.MOUSE.ROTATE : THREE.MOUSE.PAN;
-    };
-
-    const onPointerUp = () => {
-      renderer.domElement.style.cursor = runtime.hovered ? "crosshair" : "grab";
-      controls.mouseButtons.LEFT = THREE.MOUSE.PAN;
-    };
-
     const onPointerMove = (event: PointerEvent) => {
       const rect = renderer.domElement.getBoundingClientRect();
       runtime.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
@@ -194,31 +180,11 @@ export function MethodScene({
       runtime.hovered = null;
       tooltip.style.opacity = "0";
       renderer.domElement.style.cursor = "grab";
-      controls.mouseButtons.LEFT = THREE.MOUSE.PAN;
     };
 
-    const onWheel = (event: WheelEvent) => {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      tooltip.style.opacity = "0";
-
-      if (event.ctrlKey || event.metaKey) {
-        zoomCamera(camera, controls, event.deltaY);
-      } else if (event.shiftKey) {
-        panCamera(camera, controls, renderer.domElement, event.deltaX, event.deltaY);
-      } else {
-        orbitCamera(camera, controls, event.deltaX, event.deltaY);
-      }
-
-      controls.update();
-    };
-
-    renderer.domElement.addEventListener("pointerdown", onPointerDown);
-    renderer.domElement.addEventListener("pointerup", onPointerUp);
     renderer.domElement.addEventListener("pointermove", onPointerMove);
     renderer.domElement.addEventListener("pointerleave", onPointerLeave);
     renderer.domElement.addEventListener("dblclick", resetCamera);
-    renderer.domElement.addEventListener("wheel", onWheel, { passive: false, capture: true });
 
     resizeRenderer(runtime);
     runtime.observer.observe(mount);
@@ -241,12 +207,9 @@ export function MethodScene({
         target: [controls.target.x, controls.target.y, controls.target.z],
       };
       runtime.observer.disconnect();
-      renderer.domElement.removeEventListener("pointerdown", onPointerDown);
-      renderer.domElement.removeEventListener("pointerup", onPointerUp);
       renderer.domElement.removeEventListener("pointermove", onPointerMove);
       renderer.domElement.removeEventListener("pointerleave", onPointerLeave);
       renderer.domElement.removeEventListener("dblclick", resetCamera);
-      renderer.domElement.removeEventListener("wheel", onWheel, { capture: true });
       controls.dispose();
       disposeObject(scene);
       renderer.dispose();
@@ -266,8 +229,7 @@ export function MethodScene({
     runtime.renderer.setClearColor(style.background);
     runtime.scene.background = new THREE.Color(style.background);
     runtime.scene.fog = new THREE.Fog(style.background, 9, 28);
-    runtime.controls.minDistance = frame.minDistance;
-    runtime.controls.maxDistance = frame.maxDistance;
+    runtime.controls.setDistanceLimits(frame.minDistance, frame.maxDistance);
 
     const shouldAutoFrame = !cameraStateRef.current || previousExampleIdRef.current !== trace.metadata.exampleId;
     if (shouldAutoFrame) {
@@ -280,8 +242,8 @@ export function MethodScene({
     runtime.hovered = null;
     runtime.tooltip.style.opacity = "0";
     runtime.renderer.domElement.style.cursor = "grab";
-    runtime.pickables.push(...buildScene(runtime.contentGroup, { method, example, trace, comparisonTraces, layers, style }));
-  }, [comparisonTraces, example, layers, method, style, trace]);
+    runtime.pickables.push(...buildScene(runtime.contentGroup, { method, example, trace, comparisonTraces, projectionSegments, layers, style }));
+  }, [comparisonTraces, example, layers, method, projectionSegments, style, trace]);
 
   return <div ref={mountRef} className={className} />;
 }
@@ -295,42 +257,11 @@ function resizeRenderer(runtime: SceneRuntime) {
   runtime.camera.updateProjectionMatrix();
 }
 
-function applyCameraFrame(camera: THREE.PerspectiveCamera, controls: OrbitControls, frame: SceneFrame) {
+function applyCameraFrame(camera: THREE.PerspectiveCamera, controls: VisualViewportControls, frame: SceneFrame) {
   camera.position.set(...frame.cameraPosition);
-  controls.target.set(...frame.center);
+  controls.setTarget(new THREE.Vector3(...frame.center));
   camera.lookAt(controls.target);
   controls.update();
-}
-
-function panCamera(camera: THREE.PerspectiveCamera, controls: OrbitControls, canvas: HTMLCanvasElement, deltaX: number, deltaY: number) {
-  const cameraDistance = camera.position.distanceTo(controls.target);
-  const height = canvas.clientHeight || 1;
-  const worldPerPixel = (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * cameraDistance) / height;
-  const xAxis = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 0);
-  const yAxis = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 1);
-  const movement = xAxis.multiplyScalar(-deltaX * worldPerPixel).add(yAxis.multiplyScalar(deltaY * worldPerPixel));
-  camera.position.add(movement);
-  controls.target.add(movement);
-}
-
-function zoomCamera(camera: THREE.PerspectiveCamera, controls: OrbitControls, deltaY: number) {
-  const offset = camera.position.clone().sub(controls.target);
-  const currentDistance = offset.length();
-  const scale = Math.exp(deltaY * 0.0018);
-  const nextDistance = THREE.MathUtils.clamp(currentDistance * scale, controls.minDistance, controls.maxDistance);
-  offset.setLength(nextDistance);
-  camera.position.copy(controls.target).add(offset);
-}
-
-function orbitCamera(camera: THREE.PerspectiveCamera, controls: OrbitControls, deltaX: number, deltaY: number) {
-  const offset = camera.position.clone().sub(controls.target);
-  const spherical = new THREE.Spherical().setFromVector3(offset);
-  spherical.theta += deltaX * 0.0042;
-  spherical.phi += deltaY * 0.0042;
-  spherical.phi = THREE.MathUtils.clamp(spherical.phi, 0.08, Math.PI - 0.08);
-  offset.setFromSpherical(spherical);
-  camera.position.copy(controls.target).add(offset);
-  camera.lookAt(controls.target);
 }
 
 function buildScene(
@@ -340,6 +271,7 @@ function buildScene(
     example,
     trace,
     comparisonTraces,
+    projectionSegments,
     layers,
     style,
   }: {
@@ -347,6 +279,7 @@ function buildScene(
     example: ExampleSpec;
     trace: TraceResult;
     comparisonTraces: ComparisonTrace[];
+    projectionSegments: ProjectionSegmentTrace[];
     layers: LayerSpec;
     style: EngineStyle;
   },
@@ -366,7 +299,7 @@ function buildScene(
 
   if (layers.comparison) {
     for (const comparison of comparisonTraces) {
-      addLine(target, comparison.trace.points, comparison.color, 0.32);
+      addLine(target, comparison.trace.points, comparison.color, comparison.id === "energy-corrected-euler" ? 0.82 : 0.36);
     }
   }
 
@@ -428,6 +361,29 @@ function buildScene(
           ...(marker.description ? [["note", marker.description] as [string, string]] : []),
         ],
       }, pickables);
+    });
+  }
+
+  if (layers.projection) {
+    projectionSegments.forEach((segment) => {
+      addVector(target, segment.from, segment.to, style.projection, 0.86, 0.055);
+      addSphere(
+        target,
+        segment.to,
+        0.033,
+        style.projection,
+        style.projection,
+        0.18,
+        {
+          title: `${segment.label} ${segment.index}`,
+          rows: [
+            ["from", formatPoint(segment.from)],
+            ["to", formatPoint(segment.to)],
+            ["delta", formatNumber(segment.magnitude)],
+          ],
+        },
+        pickables,
+      );
     });
   }
 

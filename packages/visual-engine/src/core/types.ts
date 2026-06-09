@@ -1,180 +1,136 @@
-export type Point = [number, number, number];
-export type MethodId = string;
-export type ExampleId = string;
+export type VisualVec3 = [number, number, number];
 
-export type VectorField = (point: Point, t: number) => Point;
+export type VisualRgb = [number, number, number];
 
-export type StageTrace = {
-  label: string;
-  sample: Point;
-  vectorEnd: Point;
-  color: string;
+export type VisualCameraSpec = {
+  position: VisualVec3;
+  target: VisualVec3;
+  fov: number;
+  minDistance: number;
+  maxDistance: number;
 };
 
-export type StepTrace = {
-  index: number;
-  tStart: number;
-  tEnd: number;
-  h: number;
-  start: Point;
-  end: Point;
-  exactEnd: Point;
-  stages: StageTrace[];
+export type VisualTransformSpec = {
+  position?: VisualVec3;
+  rotation?: VisualVec3;
+  scale?: VisualVec3;
+  pivot?: VisualVec3;
+  opacity?: number;
 };
 
-export type StageLayerTrace = StageTrace & {
-  stepIndex: number;
-  tStart: number;
-  tEnd: number;
-};
-
-export type TraceError = {
-  index: number;
-  t: number;
-  exact: Point;
-  numeric: Point;
-  magnitude: number;
-};
-
-export type TraceMetrics = {
-  finalError: number;
-  maxError: number;
-  metricLabel: string;
-  metricValue: number;
-};
-
-export type StabilityRegionTrace = {
-  points: Point[];
-  planeZ: number;
-  radiusScale: number;
-} | null;
-
-export type JacobianDeformationTrace = {
-  sourceLoop: Point[];
-  mappedLoop: Point[];
-  anchors: Array<[Point, Point]>;
-} | null;
-
-export type LocalErrorSurfaceTrace = {
-  points: Point[];
-  size: number;
-  maxMagnitude: number;
-} | null;
-
-export type CriticalMarkerTrace = {
-  label: string;
-  point: Point;
-  kind: "singularity" | "equilibrium" | "turning-point" | "stiff-zone" | "custom";
-  severity: number;
-  description?: string;
-};
-
-export type CriticalSearchSpec = {
-  enabled: boolean;
-  xRange: [number, number];
-  yRange: [number, number];
-  z: number;
-  samples: number;
-  threshold: number;
-  zWeight?: number;
-};
-
-export type TraceMetadata = {
-  methodId: string;
-  methodName: string;
-  exampleId: string;
-  exampleName: string;
-  step: number;
-  stepCount: number;
-};
-
-export type TraceResult = {
-  points: Point[];
-  exactPath: Point[];
-  exactAtStep: Point[];
-  steps: StepTrace[];
-  stages: StageLayerTrace[];
-  errors: TraceError[];
-  stabilityRegion: StabilityRegionTrace;
-  jacobianDeformation: JacobianDeformationTrace;
-  localErrorSurface: LocalErrorSurfaceTrace;
-  criticalMarkers: CriticalMarkerTrace[];
-  metrics: TraceMetrics;
-  metadata: TraceMetadata;
-};
-
-export type ExampleSpec = {
-  id: ExampleId;
-  name: string;
-  shortName: string;
-  equation: string;
-  initial: Point;
-  endTime: number;
-  defaultStep: number;
-  minStep: number;
-  maxStep: number;
-  exact: (t: number) => Point;
-  exactFlow?: (point: Point, t: number, h: number) => Point;
-  field: VectorField;
-  metricLabel: string;
-  metric: (point: Point) => number;
-  criticalMarkers?: CriticalMarkerTrace[];
-  criticalSearch?: CriticalSearchSpec;
-  interpretation: string;
-  fieldScale: number;
-  gridZ: number;
-};
-
-export type MethodComputation = {
-  next: Point;
-  stages: StageTrace[];
-};
-
-export type MethodSpec = {
-  id: MethodId;
-  name: string;
-  formula: string;
-  stability: string;
-  stabilityPolynomial?: number[];
-  color: string;
-  geometry: string;
-  computeStep: (point: Point, t: number, h: number, field: VectorField) => MethodComputation;
-};
-
-export type LayerId =
-  | "field"
-  | "stages"
-  | "comparison"
-  | "errors"
-  | "stability"
-  | "jacobian"
-  | "localError"
-  | "critical";
-
-export type LayerSpec = {
-  field: boolean;
-  stages: boolean;
-  comparison: boolean;
-  errors: boolean;
-  stability: boolean;
-  jacobian: boolean;
-  localError: boolean;
-  critical: boolean;
-  errorGain: number;
-  stepIndex: number;
-};
-
-export type EngineStyle = {
+export type VisualSceneStyle = {
   background: string;
-  exact: string;
-  error: string;
-  field: string;
-  stability: string;
-  jacobianSource: string;
-  jacobianMapped: string;
-  localErrorLow: string;
-  localErrorHigh: string;
-  critical: string;
-  gridMajor: string;
-  gridMinor: string;
+  fogNear: number;
+  fogFar: number;
+};
+
+export type VisualMeshMaterialSpec = {
+  color?: string;
+  vertexColors?: boolean;
+  opacity?: number;
+  transparent?: boolean;
+  doubleSided?: boolean;
+  depthTest?: boolean;
+};
+
+export type VisualWireframeSpec = {
+  color: string;
+  opacity: number;
+};
+
+export type VisualLayerBase = {
+  id: string;
+  objectId?: string;
+  transform?: VisualTransformSpec;
+};
+
+export type VisualMeshLayerSpec = VisualLayerBase & {
+  kind: "mesh";
+  positions: number[];
+  indices: number[];
+  colors?: number[];
+  material: VisualMeshMaterialSpec;
+  wireframe?: VisualWireframeSpec;
+  fill?: boolean;
+};
+
+export type VisualLineSegment = {
+  from: VisualVec3;
+  to: VisualVec3;
+};
+
+export type VisualLineLayerSpec = VisualLayerBase & {
+  kind: "lines";
+  segments: VisualLineSegment[];
+  color: string;
+  opacity?: number;
+};
+
+export type VisualMarkerLayerSpec = VisualLayerBase & {
+  kind: "marker";
+  position: VisualVec3;
+  color: string;
+  radius: number;
+  label?: string;
+  labelOffset?: VisualVec3;
+};
+
+export type VisualRingLayerSpec = VisualLayerBase & {
+  kind: "ring";
+  position: VisualVec3;
+  color: string;
+  radius: number;
+  tubeRadius: number;
+};
+
+export type VisualBoxOutlineLayerSpec = VisualLayerBase & {
+  kind: "box-outline";
+  position: VisualVec3;
+  size: VisualVec3;
+  color: string;
+  opacity?: number;
+};
+
+export type VisualArrowLayerSpec = VisualLayerBase & {
+  kind: "arrow";
+  from: VisualVec3;
+  to: VisualVec3;
+  color: string;
+  opacity?: number;
+};
+
+export type VisualGridLayerSpec = VisualLayerBase & {
+  kind: "grid";
+  size: number;
+  divisions: number;
+  color: string;
+  opacity: number;
+  y: number;
+};
+
+export type VisualLabelLayerSpec = VisualLayerBase & {
+  kind: "label";
+  text: string;
+  position: VisualVec3;
+  color: string;
+  scale?: number;
+  format?: "text" | "latex";
+};
+
+export type VisualLayerSpec =
+  | VisualMeshLayerSpec
+  | VisualLineLayerSpec
+  | VisualMarkerLayerSpec
+  | VisualRingLayerSpec
+  | VisualBoxOutlineLayerSpec
+  | VisualArrowLayerSpec
+  | VisualGridLayerSpec
+  | VisualLabelLayerSpec;
+
+export type VisualSceneSpec = {
+  id: string;
+  style: VisualSceneStyle;
+  camera: VisualCameraSpec;
+  layers: VisualLayerSpec[];
+  metadata?: Record<string, string | number | boolean>;
 };

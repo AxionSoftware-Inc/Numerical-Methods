@@ -5,8 +5,10 @@
   "type": "module",
   "exports": {
     "./core": "./src/core/index.ts",
-    "./presets": "./src/presets/index.ts",
     "./react": "./src/react/index.ts"
+  },
+  "dependencies": {
+    "@methodslab/methods-engine": "file:../methods-engine"
   },
   "peerDependencies": {
     "react": "19.2.4",

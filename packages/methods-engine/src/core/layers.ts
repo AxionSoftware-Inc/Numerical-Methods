@@ -21,6 +21,7 @@ export const defaultLayerSpec: LayerSpec = {
   jacobian: true,
   localError: true,
   critical: true,
+  projection: true,
   errorGain: 3,
   stepIndex: 0,
 };
@@ -36,6 +37,7 @@ export const defaultEngineStyle: EngineStyle = {
   localErrorLow: "#277da1",
   localErrorHigh: "#ff5a5f",
   critical: "#f97316",
+  projection: "#facc15",
   gridMajor: "#31434b",
   gridMinor: "#17272d",
 };

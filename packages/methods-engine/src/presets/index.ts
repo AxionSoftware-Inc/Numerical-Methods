@@ -1,5 +1,6 @@
 import { addScaled } from "../core";
 import type { ExampleSpec, MethodSpec } from "../core";
+export { integrationExamples, integrationMethods, surfaceIntegralExamples, volumeIntegralExamples } from "./integration";
 
 const stageColors = ["#f0e442", "#009e73", "#cc79a7", "#d55e00"];
 
@@ -146,8 +147,8 @@ export const examples: ExampleSpec[] = [
       z + 0.08 * h,
     ],
     field: ([x, v]) => [v, -x, 0.08],
-    metricLabel: "Energiya",
-    metric: ([x, v]) => (x * x + v * v) / 2,
+    metricLabel: "Energiya E",
+    metric: ([x, v]) => x * x + v * v,
     criticalMarkers: [
       {
         label: "phase equilibrium",

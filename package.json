@@ -12,7 +12,10 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@methodslab/methods-engine": "file:packages/methods-engine",
+    "@methodslab/video-engine": "file:packages/video-engine",
     "@methodslab/visual-engine": "file:packages/visual-engine",
+    "jszip": "^3.10.1",
     "lucide-react": "^1.17.0",
     "next": "16.2.7",
     "react": "19.2.4",

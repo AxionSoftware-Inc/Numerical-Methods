@@ -74,6 +74,11 @@ export function buildTrace(method: MethodSpec, example: ExampleSpec, step: numbe
     jacobianDeformation: buildJacobianDeformation(method, example, steps[Math.floor(steps.length * 0.36)]),
     localErrorSurface: buildLocalErrorSurface(method, example, steps[Math.floor(steps.length * 0.36)]),
     criticalMarkers: buildCriticalMarkers(example),
+    energySeries: points.map((point, index) => ({
+      index,
+      t: errors[index]?.t ?? index,
+      value: point[0] * point[0] + point[1] * point[1],
+    })),
     metrics: {
       finalError: errors.at(-1)!.magnitude,
       maxError,
