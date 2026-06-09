@@ -7,7 +7,7 @@
     "./core": "./src/core/index.ts"
   },
   "dependencies": {
-    "@methodslab/video-engine": "file:../video-engine",
-    "@methodslab/visual-engine": "file:../visual-engine"
+    "@methodslab/visual-engine": "file:../visual-engine",
+    "@methodslab/video-engine": "file:../video-engine"
   }
 }

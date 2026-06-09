@@ -1,7 +1,14 @@
 import type { CSSProperties } from "react";
-import type { CameraKeyframe } from "@methodslab/video-engine/core";
+import type { CameraKeyframe, EasingId } from "@methodslab/video-engine/core";
 import type { VisualLayerSpec, VisualVec3 } from "@methodslab/visual-engine/core";
-import type { SceneLabelObject, SceneObjectKeyframe, SceneObjectScript, SceneScript, SceneSlide } from "./types";
+import type {
+  SceneLabelObject,
+  SceneObjectKeyframe,
+  SceneObjectScript,
+  SceneScript,
+  SceneSlide,
+  SceneSlideEffect,
+} from "./types";
 
 export const DEFAULT_CAMERA_PRESET = "default";
 
@@ -19,12 +26,29 @@ export const defaultSceneScript: SceneScript = {
   version: 1,
   duration: 10,
   fps: 30,
-  camera: { orbit: false, turns: 1, keyframes: [] },
-  objects: { volume: {}, axes: {}, cameraPath: {}, title: {} },
+  camera: {
+    orbit: false,
+    turns: 1,
+    keyframes: [],
+  },
+  objects: {
+    volume: {},
+    axes: {},
+    cameraPath: {},
+    title: {},
+  },
   labels: [],
   title: "Yangi sahna",
   latex: "",
-  slides: [{ start: 0, end: 10, title: "Yangi sahna", latex: "", effect: "cut" }],
+  slides: [
+    {
+      start: 0,
+      end: 10,
+      title: "Yangi sahna",
+      latex: "",
+      effect: "cut",
+    },
+  ],
 };
 
 export const defaultSceneCode = `config:
@@ -39,11 +63,14 @@ slide "Yangi sahna":
   latex:`;
 
 export function parseSceneScript(value: string): { script: SceneScript; error: string | null } {
-  if (value.trim().startsWith("{")) return parseJsonSceneScript(value);
+  if (value.trim().startsWith("{")) {
+    return parseJsonSceneScript(value);
+  }
+
   return parseTimelineCode(value);
 }
 
-export function updateSceneNumber(source: string, path: "duration" | "fps", value: number) {
+export function updateSceneNumber(source: string, path: "duration" | "fps", value: number): string {
   if (source.trim().startsWith("{")) {
     try {
       const parsed = JSON.parse(source) as Record<string, unknown>;
@@ -53,18 +80,25 @@ export function updateSceneNumber(source: string, path: "duration" | "fps", valu
       return source;
     }
   }
+
   const lines = source.split(/\r?\n/);
-  const lineIndex = lines.findIndex((line) => line.trim().startsWith(`${path} `) || line.trim().startsWith(`${path}:`));
+  const lineIndex = lines.findIndex((line) => {
+    const trimmed = line.trim();
+    return trimmed.startsWith(`${path} `) || trimmed.startsWith(`${path}:`);
+  });
+
   if (lineIndex >= 0) {
-    const indent = lines[lineIndex].match(/^\s*/)?.[0] ?? "";
-    const separator = lines[lineIndex].includes(":") ? ":" : " ";
+    const line = lines[lineIndex] ?? "";
+    const indent = line.match(/^\s*/)?.[0] ?? "";
+    const separator = line.includes(":") ? ":" : " ";
     lines[lineIndex] = `${indent}${path}${separator}${separator === ":" ? ` ${value}` : value}`;
     return lines.join("\n");
   }
+
   return `${path}: ${value}\n${source}`;
 }
 
-export function activeSceneSlide(script: SceneScript, time: number) {
+export function activeSceneSlide(script: SceneScript, time: number): SceneSlide {
   return (
     script.slides.find((slide) => time >= slide.start && time < slide.end) ??
     script.slides.at(-1) ?? {
@@ -72,13 +106,18 @@ export function activeSceneSlide(script: SceneScript, time: number) {
       end: Number.POSITIVE_INFINITY,
       title: script.title,
       latex: script.latex,
+      effect: "cut",
     }
   );
 }
 
-export function animateSlideText(slide: SceneSlide, time: number) {
-  const progress = Math.max(0, Math.min(1, (time - slide.start) / Math.max(slide.end - slide.start, 1e-9)));
-  if (slide.effect !== "typewriter") return slide;
+export function animateSlideText(slide: SceneSlide, time: number): SceneSlide {
+  const progress = clamp01((time - slide.start) / Math.max(slide.end - slide.start, 1e-9));
+
+  if (slide.effect !== "typewriter") {
+    return slide;
+  }
+
   return {
     ...slide,
     title: sliceByProgress(slide.title, Math.max(0.08, progress)),
@@ -87,16 +126,27 @@ export function animateSlideText(slide: SceneSlide, time: number) {
 }
 
 export function slideOverlayStyle(slide: SceneSlide, time: number): CSSProperties {
-  const progress = Math.max(0, Math.min(1, (time - slide.start) / Math.max(slide.end - slide.start, 1e-9)));
+  const progress = clamp01((time - slide.start) / Math.max(slide.end - slide.start, 1e-9));
   const entrance = Math.min(1, progress / 0.22);
-  if (slide.effect === "fade") return { opacity: entrance };
-  if (slide.effect === "slide") {
-    return { opacity: entrance, transform: `translate3d(${(1 - entrance) * -18}px, ${(1 - entrance) * 8}px, 0)` };
+
+  if (slide.effect === "fade") {
+    return { opacity: entrance };
   }
-  return { opacity: 1, transform: "translate3d(0, 0, 0)" };
+
+  if (slide.effect === "slide") {
+    return {
+      opacity: entrance,
+      transform: `translate3d(${(1 - entrance) * -18}px, ${(1 - entrance) * 8}px, 0)`,
+    };
+  }
+
+  return {
+    opacity: 1,
+    transform: "translate3d(0, 0, 0)",
+  };
 }
 
-export function latexPreview(text: string) {
+export function latexPreview(text: string): string {
   return text
     .replaceAll("\\int", "∫")
     .replaceAll("\\sum", "∑")
@@ -111,7 +161,7 @@ export function latexPreview(text: string) {
     .replace(/[{}]/g, "");
 }
 
-export function describeKeyframe(keyframe: SceneObjectKeyframe) {
+export function describeKeyframe(keyframe: SceneObjectKeyframe): string {
   const parts = [
     keyframe.position ? `pos=[${keyframe.position.join(", ")}]` : null,
     keyframe.rotation ? `rot=[${keyframe.rotation.join(", ")}]` : null,
@@ -119,6 +169,7 @@ export function describeKeyframe(keyframe: SceneObjectKeyframe) {
     keyframe.opacity !== undefined ? `opacity=${keyframe.opacity}` : null,
     keyframe.easing ? `ease=${keyframe.easing}` : null,
   ].filter(Boolean);
+
   return parts.join(" ");
 }
 
@@ -126,31 +177,21 @@ export function createLabelLayers(labels: SceneLabelObject[]): VisualLayerSpec[]
   return labels.map((label) => ({
     kind: "label",
     id: `script-label-${label.id}`,
-    objectId: label.id,
+    objectId: label.objectId ?? label.id,
     text: label.text,
     position: label.position,
-    color: label.color,
-    scale: label.scale,
-    format: label.format,
+    color: label.color ?? "#f8fafc",
+    scale: label.scale ?? 0.16,
+    format: label.format ?? "text",
   }));
 }
 
 export function cameraPreset(value: string): Pick<CameraKeyframe, "position" | "target" | "fov"> | null {
-  return CAMERA_PRESETS[value] ?? CAMERA_PRESETS[DEFAULT_CAMERA_PRESET];
+  return CAMERA_PRESETS[value] ?? CAMERA_PRESETS[DEFAULT_CAMERA_PRESET] ?? null;
 }
 
 function parseTimelineCode(source: string): { script: SceneScript; error: string | null } {
-  const script: SceneScript = {
-    version: 1,
-    duration: defaultSceneScript.duration,
-    fps: defaultSceneScript.fps,
-    camera: { ...defaultSceneScript.camera },
-    objects: { volume: {}, axes: {}, cameraPath: {}, title: {} },
-    labels: [],
-    title: defaultSceneScript.title,
-    latex: defaultSceneScript.latex,
-    slides: [],
-  };
+  const script = createEmptySceneScript();
   let currentObject: string | null = null;
   let currentSlide: SceneSlide | null = null;
   let currentLabel: string | null = null;
@@ -160,186 +201,467 @@ function parseTimelineCode(source: string): { script: SceneScript; error: string
   source.split(/\r?\n/).forEach((rawLine, index) => {
     const lineNumber = index + 1;
     const line = rawLine.trim();
+
     if (!line || line.startsWith("#") || line.startsWith("//")) return;
+
     if (line === "config:") {
-      currentBlock = "config"; currentObject = null; currentSlide = null; currentLabel = null; return;
-    }
-    if (line === "animate:") {
-      if (!currentSlide) { errors.push(`Line ${lineNumber}: animate must be inside a slide block.`); return; }
-      currentBlock = "animate"; currentObject = null; currentLabel = null; return;
-    }
-    if (/^slide\s+.+:$/.test(line)) {
-      const slide = parseSmartSlideLine(line, script);
-      if (!slide) { errors.push(`Line ${lineNumber}: slide format should be slide "Title":`); return; }
-      script.slides.push(slide); currentSlide = slide; currentObject = null; currentLabel = null; currentBlock = null; return;
-    }
-    if (line.startsWith("object ") && line.endsWith(":")) {
-      const objectId = normalizeObjectId(line.slice("object ".length, -1).trim());
-      if (!objectId) { errors.push(`Line ${lineNumber}: unknown object name.`); return; }
-      script.objects[objectId] = script.objects[objectId] ?? {};
-      currentObject = objectId; currentSlide = null; currentLabel = null; currentBlock = null; return;
-    }
-    if (line.includes(":")) {
-      const handled = handleColonInstruction(line, { script, currentBlock, currentObject, currentSlide });
-      if (handled) return;
-    }
-    if (line.startsWith("duration ")) { script.duration = parsePositiveNumber(line.slice("duration ".length), script.duration); currentObject = null; currentSlide = null; currentLabel = null; return; }
-    if (line.startsWith("fps ")) { script.fps = parsePositiveNumber(line.slice("fps ".length), script.fps); currentObject = null; currentSlide = null; currentLabel = null; return; }
-    if (line.startsWith("camera ")) { script.camera = parseCameraLine(line, script.camera); currentObject = null; currentSlide = null; currentLabel = null; return; }
-    if (line.startsWith("label ") || line.startsWith("text ")) {
-      const label = parseLabelLine(line);
-      if (!label) { errors.push(`Line ${lineNumber}: text format should be "text note at x y z content ...".`); return; }
-      script.labels = [...script.labels.filter((item) => item.id !== label.id), label];
-      script.objects[label.id] = script.objects[label.id] ?? {};
-      currentObject = label.id; currentSlide = null; currentLabel = label.id; return;
-    }
-    if (line.startsWith("object ")) {
-      const objectId = normalizeObjectId(line.slice("object ".length).trim());
-      if (!objectId) { errors.push(`Line ${lineNumber}: unknown object name.`); return; }
-      currentObject = objectId; currentSlide = null; currentLabel = null; script.objects[objectId] = script.objects[objectId] ?? {}; return;
-    }
-    if (line.startsWith("slide ") || line.startsWith("scene ")) {
-      const slide = parseSlideLine(line, script);
-      if (!slide) { errors.push(`Line ${lineNumber}: scene format should be "scene 0 to 2".`); return; }
-      script.slides.push(slide); currentSlide = slide; currentObject = null; currentLabel = null; return;
-    }
-    if (line.startsWith("title ")) { const title = line.slice("title ".length).trim(); if (currentSlide) currentSlide.title = title; else script.title = title; return; }
-    if (line.startsWith("latex ")) { const latex = line.slice("latex ".length).trim(); if (currentSlide) currentSlide.latex = latex; else script.latex = latex; return; }
-    if (line.startsWith("content ")) {
-      if (!currentLabel) { errors.push(`Line ${lineNumber}: content must be inside a text block.`); return; }
-      script.labels = script.labels.map((label) => (label.id === currentLabel ? { ...label, text: line.slice("content ".length).trim() } : label)); return;
-    }
-    if (line.startsWith("effect ")) {
-      if (!currentSlide) { errors.push(`Line ${lineNumber}: effect must be inside a slide block.`); return; }
-      currentSlide.effect = parseSlideEffect(line.slice("effect ".length).trim()); return;
-    }
-    if (line.startsWith("spin ")) {
-      if (!currentObject) { errors.push(`Line ${lineNumber}: spin must be inside an object block.`); return; }
-      script.objects[currentObject].spin = parseSpinLine(line, script.objects[currentObject].spin); return;
-    }
-    if (line.startsWith("move ") || line.startsWith("rotate ") || line.startsWith("scale ") || line.startsWith("show ") || line.startsWith("hide ")) {
-      if (!currentObject) { errors.push(`Line ${lineNumber}: ${line.split(/\s+/)[0]} must be inside an object block.`); return; }
-      const keyframes = parseActionLine(line);
-      if (!keyframes) { errors.push(`Line ${lineNumber}: action format should be "move at 3.5 to x y z".`); return; }
-      const objectId = currentObject;
-      keyframes.forEach((keyframe) => appendObjectKeyframe(script, objectId, keyframe)); return;
-    }
-    if (line.startsWith("replace ")) {
-      const replacement = parseReplaceLine(line);
-      if (!replacement) { errors.push(`Line ${lineNumber}: replace format should be "replace old with new at 4".`); return; }
-      [replacement.hide, replacement.show].forEach(({ objectId, keyframe }) => {
-        const id = normalizeObjectId(objectId); if (!id) return; appendObjectKeyframe(script, id, keyframe);
-      });
+      currentBlock = "config";
+      currentObject = null;
+      currentSlide = null;
+      currentLabel = null;
       return;
     }
-    if (line.startsWith("at ")) {
-      if (!currentObject) { errors.push(`Line ${lineNumber}: at must be inside an object block.`); return; }
-      const keyframe = parseKeyframeLine(line, script.duration);
-      if (!keyframe) { errors.push(`Line ${lineNumber}: keyframe format should start with "at 3.5 pos x y z".`); return; }
-      const objectId = currentObject;
-      appendObjectKeyframe(script, objectId, keyframe); return;
+
+    if (line === "animate:") {
+      if (!currentSlide) {
+        errors.push(`Line ${lineNumber}: animate must be inside a slide block.`);
+        return;
+      }
+
+      currentBlock = "animate";
+      currentObject = null;
+      currentLabel = null;
+      return;
     }
+
+    if (/^slide\s+.+:$/.test(line)) {
+      const slide = parseSmartSlideLine(line, script);
+
+      if (!slide) {
+        errors.push(`Line ${lineNumber}: slide format should be slide "Title":`);
+        return;
+      }
+
+      script.slides.push(slide);
+      currentSlide = slide;
+      currentObject = null;
+      currentLabel = null;
+      currentBlock = null;
+      return;
+    }
+
+    if (line.startsWith("object ") && line.endsWith(":")) {
+      const objectId = normalizeObjectId(line.slice("object ".length, -1).trim());
+
+      if (!objectId) {
+        errors.push(`Line ${lineNumber}: unknown object name.`);
+        return;
+      }
+
+      ensureObject(script, objectId);
+      currentObject = objectId;
+      currentSlide = null;
+      currentLabel = null;
+      currentBlock = null;
+      return;
+    }
+
+    if (line.includes(":")) {
+      const handled = handleColonInstruction(line, {
+        script,
+        currentBlock,
+        currentObject,
+        currentSlide,
+      });
+
+      if (handled) return;
+    }
+
+    if (line.startsWith("duration ")) {
+      script.duration = parsePositiveNumber(line.slice("duration ".length), script.duration);
+      currentObject = null;
+      currentSlide = null;
+      currentLabel = null;
+      return;
+    }
+
+    if (line.startsWith("fps ")) {
+      script.fps = parsePositiveNumber(line.slice("fps ".length), script.fps);
+      currentObject = null;
+      currentSlide = null;
+      currentLabel = null;
+      return;
+    }
+
+    if (line.startsWith("camera ")) {
+      script.camera = parseCameraLine(line, script.camera);
+      currentObject = null;
+      currentSlide = null;
+      currentLabel = null;
+      return;
+    }
+
+    if (line.startsWith("label ") || line.startsWith("text ")) {
+      const label = parseLabelLine(line);
+
+      if (!label) {
+        errors.push(`Line ${lineNumber}: text format should be "text note at x y z content ...".`);
+        return;
+      }
+
+      script.labels = [...script.labels.filter((item) => item.id !== label.id), label];
+      ensureObject(script, label.id);
+      currentObject = label.id;
+      currentSlide = null;
+      currentLabel = label.id;
+      return;
+    }
+
+    if (line.startsWith("object ")) {
+      const objectId = normalizeObjectId(line.slice("object ".length).trim());
+
+      if (!objectId) {
+        errors.push(`Line ${lineNumber}: unknown object name.`);
+        return;
+      }
+
+      ensureObject(script, objectId);
+      currentObject = objectId;
+      currentSlide = null;
+      currentLabel = null;
+      return;
+    }
+
+    if (line.startsWith("slide ") || line.startsWith("scene ")) {
+      const slide = parseSlideLine(line, script);
+
+      if (!slide) {
+        errors.push(`Line ${lineNumber}: scene format should be "scene 0 to 2".`);
+        return;
+      }
+
+      script.slides.push(slide);
+      currentSlide = slide;
+      currentObject = null;
+      currentLabel = null;
+      return;
+    }
+
+    if (line.startsWith("title ")) {
+      const title = line.slice("title ".length).trim();
+      if (currentSlide) currentSlide.title = title;
+      else script.title = title;
+      return;
+    }
+
+    if (line.startsWith("latex ")) {
+      const latex = line.slice("latex ".length).trim();
+      if (currentSlide) currentSlide.latex = latex;
+      else script.latex = latex;
+      return;
+    }
+
+    if (line.startsWith("content ")) {
+      if (!currentLabel) {
+        errors.push(`Line ${lineNumber}: content must be inside a text block.`);
+        return;
+      }
+
+      script.labels = script.labels.map((label) =>
+        label.id === currentLabel ? { ...label, text: line.slice("content ".length).trim() } : label,
+      );
+      return;
+    }
+
+    if (line.startsWith("effect ")) {
+      if (!currentSlide) {
+        errors.push(`Line ${lineNumber}: effect must be inside a slide block.`);
+        return;
+      }
+
+      currentSlide.effect = parseSlideEffect(line.slice("effect ".length).trim());
+      return;
+    }
+
+    if (line.startsWith("spin ")) {
+      if (!currentObject) {
+        errors.push(`Line ${lineNumber}: spin must be inside an object block.`);
+        return;
+      }
+
+      ensureObject(script, currentObject);
+      script.objects[currentObject].spin = parseSpinLine(line, script.objects[currentObject].spin);
+      return;
+    }
+
+    if (
+      line.startsWith("move ") ||
+      line.startsWith("rotate ") ||
+      line.startsWith("scale ") ||
+      line.startsWith("show ") ||
+      line.startsWith("hide ")
+    ) {
+      if (!currentObject) {
+        errors.push(`Line ${lineNumber}: ${line.split(/\s+/)[0]} must be inside an object block.`);
+        return;
+      }
+
+      const keyframes = parseActionLine(line);
+
+      if (!keyframes) {
+        errors.push(`Line ${lineNumber}: action format should be "move at 3.5 to x y z".`);
+        return;
+      }
+
+      const objectId = currentObject;
+      keyframes.forEach((keyframe) => appendObjectKeyframe(script, objectId, keyframe));
+      return;
+    }
+
+    if (line.startsWith("replace ")) {
+      const replacement = parseReplaceLine(line);
+
+      if (!replacement) {
+        errors.push(`Line ${lineNumber}: replace format should be "replace old with new at 4".`);
+        return;
+      }
+
+      appendObjectKeyframe(script, replacement.hide.objectId, replacement.hide.keyframe);
+      appendObjectKeyframe(script, replacement.show.objectId, replacement.show.keyframe);
+      return;
+    }
+
+    if (line.startsWith("at ")) {
+      if (!currentObject) {
+        errors.push(`Line ${lineNumber}: at must be inside an object block.`);
+        return;
+      }
+
+      const keyframe = parseKeyframeLine(line, script.duration);
+
+      if (!keyframe) {
+        errors.push(`Line ${lineNumber}: keyframe format should start with "at 3.5 pos x y z".`);
+        return;
+      }
+
+      appendObjectKeyframe(script, currentObject, keyframe);
+      return;
+    }
+
     errors.push(`Line ${lineNumber}: unknown instruction.`);
   });
 
   if (script.slides.length === 0) {
-    script.slides = [{ start: 0, end: Number.POSITIVE_INFINITY, title: script.title, latex: script.latex }];
+    script.slides = [
+      {
+        start: 0,
+        end: Number.POSITIVE_INFINITY,
+        title: script.title,
+        latex: script.latex,
+        effect: "cut",
+      },
+    ];
   } else {
     distributeSlides(script);
   }
-  return { script, error: errors.length > 0 ? errors.slice(0, 2).join(" ") : null };
+
+  return {
+    script,
+    error: errors.length > 0 ? errors.slice(0, 2).join(" ") : null,
+  };
 }
 
-function handleColonInstruction(line: string, context: { script: SceneScript; currentBlock: "config" | "animate" | null; currentObject: string | null; currentSlide: SceneSlide | null }) {
+function createEmptySceneScript(): SceneScript {
+  return {
+    version: 1,
+    duration: defaultSceneScript.duration,
+    fps: defaultSceneScript.fps,
+    camera: {
+      orbit: false,
+      turns: defaultSceneScript.camera.turns,
+      keyframes: [],
+    },
+    objects: {
+      volume: {},
+      axes: {},
+      cameraPath: {},
+      title: {},
+    },
+    labels: [],
+    title: defaultSceneScript.title,
+    latex: defaultSceneScript.latex,
+    slides: [],
+  };
+}
+
+function handleColonInstruction(
+  line: string,
+  context: {
+    script: SceneScript;
+    currentBlock: "config" | "animate" | null;
+    currentObject: string | null;
+    currentSlide: SceneSlide | null;
+  },
+): boolean {
   const separator = line.indexOf(":");
   if (separator < 0) return false;
+
   const key = line.slice(0, separator).trim();
   const value = line.slice(separator + 1).trim();
+
   if (context.currentBlock === "config") {
     if (key === "duration") context.script.duration = parsePositiveNumber(value, context.script.duration);
     if (key === "fps") context.script.fps = parsePositiveNumber(value, context.script.fps);
     if (key === "camera") applyCameraPreset(context.script, 0, value || DEFAULT_CAMERA_PRESET, true);
     return true;
   }
+
   if (context.currentObject && key === "spin") {
-    context.script.objects[context.currentObject].spin = parseSpinLine(`spin ${value}`, context.script.objects[context.currentObject].spin);
+    ensureObject(context.script, context.currentObject);
+    context.script.objects[context.currentObject].spin = parseSpinLine(
+      `spin ${value}`,
+      context.script.objects[context.currentObject].spin,
+    );
     return true;
   }
-  if (context.currentSlide && context.currentBlock === "animate") { applySlideAnimation(context.script, context.currentSlide, key, value); return true; }
-  if (context.currentSlide) {
-    if (key === "camera") { applyCameraPreset(context.script, context.currentSlide.start, value); return true; }
-    if (key === "latex") { context.currentSlide.latex = stripQuotes(value); return true; }
-    if (key === "title") { context.currentSlide.title = stripQuotes(value); return true; }
-    if (key === "effect") { context.currentSlide.effect = parseSlideEffect(value); return true; }
-    if (key === "duration") { context.currentSlide.end = context.currentSlide.start + parseDuration(value, context.currentSlide.end - context.currentSlide.start); return true; }
+
+  if (context.currentSlide && context.currentBlock === "animate") {
+    applySlideAnimation(context.script, context.currentSlide, key, value);
+    return true;
   }
+
+  if (context.currentSlide) {
+    if (key === "camera") {
+      applyCameraPreset(context.script, context.currentSlide.start, value);
+      return true;
+    }
+
+    if (key === "latex") {
+      context.currentSlide.latex = stripQuotes(value);
+      return true;
+    }
+
+    if (key === "title") {
+      context.currentSlide.title = stripQuotes(value);
+      return true;
+    }
+
+    if (key === "effect") {
+      context.currentSlide.effect = parseSlideEffect(value);
+      return true;
+    }
+
+    if (key === "duration") {
+      context.currentSlide.end =
+        context.currentSlide.start + parseDuration(value, context.currentSlide.end - context.currentSlide.start);
+      return true;
+    }
+  }
+
   return false;
 }
 
 function parseSmartSlideLine(line: string, script: SceneScript): SceneSlide | null {
   const match = line.match(/^slide\s+"(.+)"\s*:$/) ?? line.match(/^slide\s+(.+)\s*:$/);
   if (!match) return null;
+
   const previous = script.slides.at(-1);
   const start = previous && Number.isFinite(previous.end) ? previous.end : 0;
-  return { start, end: start + 2, title: stripQuotes(match[1]), latex: script.latex, effect: "slide" };
+
+  return {
+    start,
+    end: start + 2,
+    title: stripQuotes(match[1] ?? ""),
+    latex: script.latex,
+    effect: "slide",
+  };
 }
 
-function distributeSlides(script: SceneScript) {
+function distributeSlides(script: SceneScript): void {
   if (script.slides.length === 0) return;
+
   const autoStep = script.duration / script.slides.length;
   let cursor = 0;
+
   script.slides = script.slides.map((slide) => {
-    const explicitDuration = slide.end - slide.start !== 2 ? slide.end - slide.start : autoStep;
-    const next = { ...slide, start: cursor, end: cursor + explicitDuration };
+    const duration = slide.end - slide.start;
+    const explicitDuration = duration !== 2 ? duration : autoStep;
+    const next: SceneSlide = {
+      ...slide,
+      start: cursor,
+      end: cursor + explicitDuration,
+    };
+
     cursor = next.end;
     return next;
   });
 }
 
-function applySlideAnimation(script: SceneScript, slide: SceneSlide, objectId: string, action: string) {
+function applySlideAnimation(script: SceneScript, slide: SceneSlide, objectId: string, action: string): void {
   const id = normalizeObjectId(objectId) ?? objectId;
+
   if (action.startsWith("move ")) {
-    appendObjectKeyframe(script, id, { time: slide.end, position: namedPosition(action.slice("move ".length).trim()) ?? [0, 0, 0], easing: "smoothstep" });
+    appendObjectKeyframe(script, id, {
+      time: slide.end,
+      position: namedPosition(action.slice("move ".length).trim()) ?? [0, 0, 0],
+      easing: "smoothstep",
+    });
     return;
   }
+
   addTextLabel(script, id, action);
 }
 
-function applyCameraPreset(script: SceneScript, time: number, preset: string, replace = false) {
+function applyCameraPreset(script: SceneScript, time: number, preset: string, replace = false): void {
   const camera = cameraPreset(preset);
   if (!camera) return;
-  script.camera = { orbit: false, turns: script.camera.turns, keyframes: [...(replace ? [] : script.camera.keyframes), { time, ...camera, easing: "smoothstep" as const }].sort((a, b) => a.time - b.time) };
+
+  const keyframe: CameraKeyframe = {
+    time,
+    position: camera.position,
+    target: camera.target,
+    fov: camera.fov,
+    easing: "smoothstep",
+  };
+
+  script.camera = {
+    orbit: false,
+    turns: script.camera.turns,
+    keyframes: [...(replace ? [] : script.camera.keyframes), keyframe].sort((a, b) => a.time - b.time),
+  };
 }
 
-function addTextLabel(script: SceneScript, id: string, text: string) {
-  const label = { id, text: stripQuotes(text), position: defaultLabelPosition(id), color: parseColor("sky"), scale: 0.15, format: "text" as const };
+function addTextLabel(script: SceneScript, id: string, text: string): void {
+  const label: SceneLabelObject = {
+    id,
+    kind: "label",
+    objectId: id,
+    text: stripQuotes(text),
+    position: defaultLabelPosition(id),
+    color: parseColor("sky"),
+    scale: 0.15,
+    format: "text",
+  };
+
   script.labels = [...script.labels.filter((item) => item.id !== id), label];
-  script.objects[id] = script.objects[id] ?? {};
+  ensureObject(script, id);
 }
 
-function parseDuration(value: string, fallback: number) {
+function parseDuration(value: string, fallback: number): number {
   const numeric = Number(value.replace(/s$/u, ""));
   return Number.isFinite(numeric) && numeric > 0 ? numeric : fallback;
 }
 
-function stripQuotes(value: string) { return value.replace(/^["']|["']$/g, ""); }
+function stripQuotes(value: string): string {
+  return value.replace(/^["']|["']$/g, "");
+}
 
 function parseJsonSceneScript(value: string): { script: SceneScript; error: string | null } {
   try {
     const parsed = JSON.parse(value) as Partial<SceneScript>;
+    const objects = parseSceneObjects(parsed.objects);
+
     return {
       script: {
         version: 1,
         duration: numberOrDefault(parsed.duration, defaultSceneScript.duration),
         fps: numberOrDefault(parsed.fps, defaultSceneScript.fps),
-        camera: { orbit: Boolean(parsed.camera?.orbit), turns: numberOrDefault(parsed.camera?.turns, defaultSceneScript.camera.turns), keyframes: parseCameraKeyframes(parsed.camera?.keyframes) },
-        objects: {
-          ...Object.fromEntries(Object.entries(parsed.objects ?? {}).map(([id, object]) => [id, parseObjectScript(object, defaultSceneScript.objects[id] ?? {})])),
-          volume: parseObjectScript(parsed.objects?.volume, defaultSceneScript.objects.volume),
-          axes: parseObjectScript(parsed.objects?.axes, defaultSceneScript.objects.axes),
-          cameraPath: parseObjectScript(parsed.objects?.cameraPath, defaultSceneScript.objects.cameraPath),
-          title: parseObjectScript(parsed.objects?.title, defaultSceneScript.objects.title),
+        camera: {
+          orbit: Boolean(parsed.camera?.orbit),
+          turns: numberOrDefault(parsed.camera?.turns, defaultSceneScript.camera.turns),
+          keyframes: parseCameraKeyframes(parsed.camera?.keyframes),
         },
+        objects,
         labels: parseLabels(parsed.labels),
         title: typeof parsed.title === "string" ? parsed.title : defaultSceneScript.title,
         latex: typeof parsed.latex === "string" ? parsed.latex : defaultSceneScript.latex,
@@ -348,105 +670,309 @@ function parseJsonSceneScript(value: string): { script: SceneScript; error: stri
       error: null,
     };
   } catch {
-    return { script: defaultSceneScript, error: "Script syntax error. Using default scene script." };
+    return {
+      script: defaultSceneScript,
+      error: "Script syntax error. Using default scene script.",
+    };
   }
+}
+
+function parseSceneObjects(value: unknown): SceneScript["objects"] {
+  const base: SceneScript["objects"] = {
+    volume: {},
+    axes: {},
+    cameraPath: {},
+    title: {},
+  };
+
+  if (!value || typeof value !== "object") {
+    return base;
+  }
+
+  const raw = value as Record<string, unknown>;
+
+  Object.entries(raw).forEach(([id, object]) => {
+    base[id] = parseObjectScript(object, base[id] ?? {});
+  });
+
+  base.volume = parseObjectScript(raw.volume, base.volume);
+  base.axes = parseObjectScript(raw.axes, base.axes);
+  base.cameraPath = parseObjectScript(raw.cameraPath, base.cameraPath);
+  base.title = parseObjectScript(raw.title, base.title);
+
+  return base;
 }
 
 function parseObjectScript(value: unknown, fallback: SceneObjectScript): SceneObjectScript {
   if (!value || typeof value !== "object") return fallback;
-  const object = value as SceneObjectScript;
-  return { spin: parseSpin(object.spin, fallback.spin), keyframes: parseObjectKeyframes(object.keyframes, fallback.keyframes) };
+
+  const object = value as Partial<SceneObjectScript>;
+
+  return {
+    spin: parseSpin(object.spin, fallback.spin),
+    keyframes: parseObjectKeyframes(object.keyframes, fallback.keyframes),
+  };
 }
 
-function appendObjectKeyframe(script: SceneScript, objectId: string, keyframe: SceneObjectKeyframe) {
-  script.objects[objectId] = script.objects[objectId] ?? {};
+function appendObjectKeyframe(script: SceneScript, objectId: string, keyframe: SceneObjectKeyframe): void {
+  ensureObject(script, objectId);
+
   const existing = script.objects[objectId].keyframes ?? [];
   const sameTimeIndex = existing.findIndex((item) => Math.abs(item.time - keyframe.time) < 1e-9);
+
   if (sameTimeIndex >= 0) {
     existing[sameTimeIndex] = mergeSceneKeyframes(existing[sameTimeIndex], keyframe);
     script.objects[objectId].keyframes = [...existing].sort((a, b) => a.time - b.time);
     return;
   }
+
   script.objects[objectId].keyframes = [...existing, keyframe].sort((a, b) => a.time - b.time);
 }
 
-function mergeSceneKeyframes(base: SceneObjectKeyframe, next: SceneObjectKeyframe): SceneObjectKeyframe {
-  return { time: base.time, position: next.position ?? base.position, rotation: next.rotation ?? base.rotation, scale: next.scale ?? base.scale, opacity: next.opacity ?? base.opacity, easing: next.easing ?? base.easing };
+function ensureObject(script: SceneScript, objectId: string): void {
+  script.objects[objectId] = script.objects[objectId] ?? {};
 }
 
-function parseSpin(value: unknown, fallback: SceneObjectScript["spin"]) {
+function mergeSceneKeyframes(base: SceneObjectKeyframe, next: SceneObjectKeyframe): SceneObjectKeyframe {
+  return {
+    time: base.time,
+    position: next.position ?? base.position,
+    rotation: next.rotation ?? base.rotation,
+    scale: next.scale ?? base.scale,
+    opacity: next.opacity ?? base.opacity,
+    easing: next.easing ?? base.easing,
+    transform: next.transform ?? base.transform,
+    metadata: {
+      ...base.metadata,
+      ...next.metadata,
+    },
+  };
+}
+
+function parseSpin(value: unknown, fallback: SceneObjectScript["spin"]): SceneObjectScript["spin"] {
   if (!value || typeof value !== "object") return fallback;
-  const spin = value as SceneObjectScript["spin"];
-  if (!spin) return fallback;
+
+  const spin = value as Partial<NonNullable<SceneObjectScript["spin"]>>;
   const axis = spin.axis === "x" || spin.axis === "y" || spin.axis === "z" ? spin.axis : fallback?.axis ?? "y";
-  return { axis, turns: numberOrDefault(spin.turns, fallback?.turns ?? 0), pivot: parseVec3(spin.pivot, fallback?.pivot) };
+
+  return {
+    axis,
+    turns: numberOrDefault(spin.turns, fallback?.turns ?? 0),
+    pivot: parseVec3(spin.pivot, fallback?.pivot),
+  };
 }
 
 function parseObjectKeyframes(value: unknown, fallback: SceneObjectKeyframe[] | undefined): SceneObjectKeyframe[] | undefined {
   if (!Array.isArray(value)) return fallback;
-  return value.map<SceneObjectKeyframe | null>((item) => {
-    if (!item || typeof item !== "object") return null;
-    const keyframe = item as SceneObjectKeyframe;
-    return { time: numberOrDefault(keyframe.time, 0), position: parseVec3(keyframe.position), rotation: parseVec3(keyframe.rotation), scale: parseVec3(keyframe.scale), opacity: typeof keyframe.opacity === "number" ? keyframe.opacity : undefined, easing: parseEasing(keyframe.easing) };
-  }).filter((item): item is SceneObjectKeyframe => item !== null).sort((a, b) => a.time - b.time);
+
+  return value
+    .map<SceneObjectKeyframe | null>((item) => {
+      if (!item || typeof item !== "object") return null;
+
+      const keyframe = item as Partial<SceneObjectKeyframe>;
+
+      return {
+        time: numberOrDefault(keyframe.time, 0),
+        position: parseVec3(keyframe.position),
+        rotation: parseVec3(keyframe.rotation),
+        scale: parseVec3(keyframe.scale),
+        opacity: typeof keyframe.opacity === "number" ? keyframe.opacity : undefined,
+        easing: parseEasing(keyframe.easing),
+        transform: keyframe.transform,
+        metadata: keyframe.metadata,
+      };
+    })
+    .filter((item): item is SceneObjectKeyframe => item !== null)
+    .sort((a, b) => a.time - b.time);
 }
 
-function parseVec3(value: unknown, fallback?: [number, number, number]) {
+function parseVec3(value: unknown, fallback?: VisualVec3): VisualVec3 | undefined {
   if (!Array.isArray(value) || value.length !== 3) return fallback;
+
   const tuple = value.map((item) => Number(item));
+
   if (tuple.some((item) => !Number.isFinite(item))) return fallback;
-  return tuple as [number, number, number];
+
+  return tuple as VisualVec3;
 }
 
-function parseEasing(value: unknown): SceneObjectKeyframe["easing"] {
-  return value === "linear" || value === "smoothstep" || value === "ease-in" || value === "ease-out" || value === "ease-in-out" ? value : undefined;
+function parseEasing(value: unknown): EasingId | undefined {
+  if (
+    value === "linear" ||
+    value === "smoothstep" ||
+    value === "ease-in" ||
+    value === "ease-out" ||
+    value === "ease-in-out" ||
+    value === "ease-in-cubic" ||
+    value === "ease-out-cubic" ||
+    value === "ease-in-out-cubic"
+  ) {
+    return value;
+  }
+
+  return undefined;
 }
 
-function parseSlideEffect(value: unknown): SceneSlide["effect"] {
-  return value === "cut" || value === "fade" || value === "slide" || value === "typewriter" ? value : "cut";
+function parseSlideEffect(value: unknown): SceneSlideEffect {
+  if (value === "cut" || value === "fade" || value === "slide" || value === "typewriter") {
+    return value;
+  }
+
+  return "cut";
 }
 
 function parseCameraKeyframes(value: unknown): CameraKeyframe[] {
   if (!Array.isArray(value)) return [];
-  return value.map<CameraKeyframe | null>((item) => {
-    if (!item || typeof item !== "object") return null;
-    const keyframe = item as CameraKeyframe;
-    return { time: numberOrDefault(keyframe.time, 0), position: parseVec3(keyframe.position), target: parseVec3(keyframe.target), fov: typeof keyframe.fov === "number" ? keyframe.fov : undefined, minDistance: typeof keyframe.minDistance === "number" ? keyframe.minDistance : undefined, maxDistance: typeof keyframe.maxDistance === "number" ? keyframe.maxDistance : undefined, easing: parseEasing(keyframe.easing) };
-  }).filter((item): item is CameraKeyframe => item !== null).sort((a, b) => a.time - b.time);
+
+  return value
+    .map<CameraKeyframe | null>((item) => {
+      if (!item || typeof item !== "object") return null;
+
+      const keyframe = item as Partial<CameraKeyframe>;
+
+      return {
+        time: numberOrDefault(keyframe.time, 0),
+        position: parseVec3(keyframe.position),
+        target: parseVec3(keyframe.target),
+        fov: typeof keyframe.fov === "number" ? keyframe.fov : undefined,
+        minDistance: typeof keyframe.minDistance === "number" ? keyframe.minDistance : undefined,
+        maxDistance: typeof keyframe.maxDistance === "number" ? keyframe.maxDistance : undefined,
+        easing: parseEasing(keyframe.easing),
+      };
+    })
+    .filter((item): item is CameraKeyframe => item !== null)
+    .sort((a, b) => a.time - b.time);
 }
 
 function parseLabels(value: unknown): SceneLabelObject[] {
   if (!Array.isArray(value)) return [];
-  return value.map((item) => {
-    if (!item || typeof item !== "object") return null;
-    const label = item as SceneLabelObject;
-    if (typeof label.id !== "string" || typeof label.text !== "string") return null;
-    return { id: label.id, text: label.text, position: parseVec3(label.position, [0, 0, 0]) ?? [0, 0, 0], color: typeof label.color === "string" ? label.color : "#f8fafc", scale: typeof label.scale === "number" ? label.scale : 0.16, format: label.format === "latex" ? "latex" : "text" };
-  }).filter((item): item is SceneLabelObject => item !== null);
+
+  const labels: SceneLabelObject[] = [];
+
+  value.forEach((item) => {
+    if (!item || typeof item !== "object") return;
+
+    const label = item as Partial<SceneLabelObject>;
+
+    if (typeof label.id !== "string" || typeof label.text !== "string") {
+      return;
+    }
+
+    labels.push({
+      id: label.id,
+      kind: "label",
+      objectId: label.objectId ?? label.id,
+      text: label.text,
+      position: parseVec3(label.position, [0, 0, 0]) ?? [0, 0, 0],
+      color: typeof label.color === "string" ? label.color : "#f8fafc",
+      scale: typeof label.scale === "number" ? label.scale : 0.16,
+      format: label.format === "latex" ? "latex" : "text",
+      metadata: label.metadata,
+    });
+  });
+
+  return labels;
 }
 
-function parsePositiveNumber(value: string, fallback: number) {
+function parsePositiveNumber(value: string, fallback: number): number {
   const parsed = Number(value.trim().split(/\s+/)[0]);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function parseTimeToken(value: string | undefined, duration: number) {
+function parseTimeToken(value: string | undefined, duration: number): number {
   if (!value) return Number.NaN;
-  const named: Record<string, number> = { start: 0, begin: 0, early: duration * 0.25, middle: duration * 0.35, mid: duration * 0.35, late: duration * 0.7, end: duration, finish: duration };
+
+  const named: Record<string, number> = {
+    start: 0,
+    begin: 0,
+    early: duration * 0.25,
+    middle: duration * 0.35,
+    mid: duration * 0.35,
+    late: duration * 0.7,
+    end: duration,
+    finish: duration,
+  };
+
   return named[value] ?? Number(value);
 }
 
 function parseCameraLine(line: string, fallback: SceneScript["camera"]): SceneScript["camera"] {
   const parts = line.split(/\s+/);
-  const range = parseRange(parts[1]);
-  if (parts[1] === "at") return { orbit: false, turns: fallback.turns, keyframes: (parseCameraAtLine(parts) ? [...fallback.keyframes, parseCameraAtLine(parts)!] : fallback.keyframes).sort((a, b) => a.time - b.time) };
-  if (range) return { orbit: false, turns: fallback.turns, keyframes: (parseCameraRangeLine(parts, range) ? [...fallback.keyframes, ...parseCameraRangeLine(parts, range)!] : fallback.keyframes).sort((a, b) => a.time - b.time) };
-  if (parts[1] === "orbit") return { orbit: true, turns: parsePositiveNumber(parts[2] ?? "", fallback.turns), keyframes: [] };
-  if (parts[1] === "rotate") return { orbit: true, turns: parseAngle(parts[2] ?? "0") / (Math.PI * 2), keyframes: [] };
-  if (parts[1] === "fixed" || parts[1] === "off") return { orbit: false, turns: fallback.turns, keyframes: [] };
-  if (parts[1] === "move") return { orbit: false, turns: fallback.turns, keyframes: (parseCameraMoveLine(parts) ? [...fallback.keyframes, parseCameraMoveLine(parts)!] : fallback.keyframes).sort((a, b) => a.time - b.time) };
-  const preset = cameraPreset(parts[1] ?? "");
-  if (preset) return { orbit: false, turns: fallback.turns, keyframes: [{ time: 0, ...preset, easing: "smoothstep" as const }] };
+  const command = parts[1];
+  const range = parseRange(command);
+
+  if (command === "at") {
+    const keyframe = parseCameraAtLine(parts);
+
+    return {
+      orbit: false,
+      turns: fallback.turns,
+      keyframes: keyframe ? [...fallback.keyframes, keyframe].sort((a, b) => a.time - b.time) : fallback.keyframes,
+    };
+  }
+
+  if (range) {
+    const keyframes = parseCameraRangeLine(parts, range);
+
+    return {
+      orbit: false,
+      turns: fallback.turns,
+      keyframes: keyframes ? [...fallback.keyframes, ...keyframes].sort((a, b) => a.time - b.time) : fallback.keyframes,
+    };
+  }
+
+  if (command === "orbit") {
+    return {
+      orbit: true,
+      turns: parsePositiveNumber(parts[2] ?? "", fallback.turns),
+      keyframes: [],
+    };
+  }
+
+  if (command === "rotate") {
+    return {
+      orbit: true,
+      turns: parseAngle(parts[2] ?? "0") / (Math.PI * 2),
+      keyframes: [],
+    };
+  }
+
+  if (command === "fixed" || command === "off") {
+    return {
+      orbit: false,
+      turns: fallback.turns,
+      keyframes: [],
+    };
+  }
+
+  if (command === "move") {
+    const keyframe = parseCameraMoveLine(parts);
+
+    return {
+      orbit: false,
+      turns: fallback.turns,
+      keyframes: keyframe ? [...fallback.keyframes, keyframe].sort((a, b) => a.time - b.time) : fallback.keyframes,
+    };
+  }
+
+  const preset = cameraPreset(command ?? "");
+
+  if (preset) {
+    const keyframe: CameraKeyframe = {
+      time: 0,
+      position: preset.position,
+      target: preset.target,
+      fov: preset.fov,
+      easing: "smoothstep",
+    };
+
+    return {
+      orbit: false,
+      turns: fallback.turns,
+      keyframes: [keyframe],
+    };
+  }
+
   return fallback;
 }
 
@@ -455,14 +981,19 @@ function parseCameraAtLine(parts: string[]): CameraKeyframe | null {
   const time = hasTime ? Number(parts[2]) : 0;
   const moveIndex = parts.indexOf("move");
   const position = moveIndex >= 0 ? parseVec3Expression(parts, moveIndex + 1) : parseVec3FromTokens(parts, hasTime ? 3 : 2);
+
   if (!position) return null;
-  const keyframe: CameraKeyframe = { time, position };
+
   const lookIndex = parts.indexOf("look");
   const fovIndex = parts.indexOf("fov");
-  keyframe.target = lookIndex >= 0 ? parseVec3Expression(parts, lookIndex + 1) : undefined;
-  keyframe.fov = fovIndex >= 0 ? numberOrDefault(Number(parts[fovIndex + 1]), 44) : undefined;
-  keyframe.easing = "smoothstep";
-  return keyframe;
+
+  return {
+    time,
+    position,
+    target: lookIndex >= 0 ? parseVec3Expression(parts, lookIndex + 1) : undefined,
+    fov: fovIndex >= 0 ? numberOrDefault(Number(parts[fovIndex + 1]), 44) : undefined,
+    easing: "smoothstep",
+  };
 }
 
 function parseCameraRangeLine(parts: string[], range: [number, number]): CameraKeyframe[] | null {
@@ -470,55 +1001,99 @@ function parseCameraRangeLine(parts: string[], range: [number, number]): CameraK
   const toIndex = parts.indexOf("to");
   const from = fromIndex >= 0 ? parseVec3FromTokens(parts, fromIndex + 1) : undefined;
   const to = toIndex >= 0 ? parseVec3FromTokens(parts, toIndex + 1) : undefined;
+
   if (!from || !to) return null;
+
   const lookIndex = parts.indexOf("look");
   const fovIndex = parts.indexOf("fov");
   const easeIndex = parts.indexOf("ease");
   const target = lookIndex >= 0 ? parseVec3FromTokens(parts, lookIndex + 1) : undefined;
   const fov = fovIndex >= 0 ? numberOrDefault(Number(parts[fovIndex + 1]), 44) : undefined;
-  const easing = easeIndex >= 0 ? parseEasing(parts[easeIndex + 1]) : "smoothstep";
-  return [{ time: range[0], position: from, target, fov, easing }, { time: range[1], position: to, target, fov, easing }];
+  const easing = easeIndex >= 0 ? parseEasing(parts[easeIndex + 1]) ?? "smoothstep" : "smoothstep";
+
+  return [
+    { time: range[0], position: from, target, fov, easing },
+    { time: range[1], position: to, target, fov, easing },
+  ];
 }
 
 function parseCameraMoveLine(parts: string[]): CameraKeyframe | null {
   const atIndex = parts.indexOf("at");
   const time = Number(parts[atIndex + 1]);
+
   if (atIndex < 0 || !Number.isFinite(time)) return null;
-  const keyframe: CameraKeyframe = { time };
+
   const posIndex = parts.indexOf("pos");
   const lookIndex = parts.indexOf("look");
   const fovIndex = parts.indexOf("fov");
   const easeIndex = parts.indexOf("ease");
-  keyframe.position = posIndex >= 0 ? parseVec3Expression(parts, posIndex + 1) : undefined;
-  keyframe.target = lookIndex >= 0 ? parseVec3Expression(parts, lookIndex + 1) : undefined;
-  keyframe.fov = fovIndex >= 0 ? numberOrDefault(Number(parts[fovIndex + 1]), 44) : undefined;
-  keyframe.easing = easeIndex >= 0 ? parseEasing(parts[easeIndex + 1]) : undefined;
+
+  const keyframe: CameraKeyframe = {
+    time,
+    position: posIndex >= 0 ? parseVec3Expression(parts, posIndex + 1) : undefined,
+    target: lookIndex >= 0 ? parseVec3Expression(parts, lookIndex + 1) : undefined,
+    fov: fovIndex >= 0 ? numberOrDefault(Number(parts[fovIndex + 1]), 44) : undefined,
+    easing: easeIndex >= 0 ? parseEasing(parts[easeIndex + 1]) : undefined,
+  };
+
   return keyframe.position || keyframe.target || keyframe.fov ? keyframe : null;
 }
 
-function normalizeObjectId(value: string): string | null { if (!value) return null; if (value === "camera-path") return "cameraPath"; return value; }
+function normalizeObjectId(value: string): string | null {
+  if (!value) return null;
+  if (value === "camera-path") return "cameraPath";
+  return value;
+}
 
 function parseLabelLine(line: string): SceneLabelObject | null {
   const parts = line.split(/\s+/);
   const id = normalizeObjectId(parts[1] ?? "");
   const atIndex = parts.indexOf("at");
+
   if (!id) return null;
+
   const position = atIndex >= 0 ? parseVec3FromTokens(parts, atIndex + 1) : defaultLabelPosition(id);
+
   if (!position) return null;
+
   const colorIndex = parts.indexOf("color");
   const scaleIndex = parts.indexOf("scale");
   const formatIndex = parts.indexOf("format");
   const textIndex = parts.indexOf("text");
   const contentIndex = parts.indexOf("content");
   const bodyIndex = textIndex >= 0 ? textIndex : contentIndex;
-  return { id, text: bodyIndex >= 0 ? parts.slice(bodyIndex + 1).join(" ") : id, position, color: parseColor(colorIndex >= 0 ? parts[colorIndex + 1] : undefined), scale: scaleIndex >= 0 ? numberOrDefault(Number(parts[scaleIndex + 1]), 0.16) : 0.16, format: formatIndex >= 0 && parts[formatIndex + 1] === "latex" ? "latex" : "text" };
+
+  return {
+    id,
+    kind: "label",
+    objectId: id,
+    text: bodyIndex >= 0 ? parts.slice(bodyIndex + 1).join(" ") : id,
+    position,
+    color: parseColor(colorIndex >= 0 ? parts[colorIndex + 1] : undefined),
+    scale: scaleIndex >= 0 ? numberOrDefault(Number(parts[scaleIndex + 1]), 0.16) : 0.16,
+    format: formatIndex >= 0 && parts[formatIndex + 1] === "latex" ? "latex" : "text",
+  };
 }
 
-function defaultLabelPosition(id: string): VisualVec3 { if (id === "note") return [-0.92, 1.34, 1.18]; return [-1, 1.32, 1.18]; }
+function defaultLabelPosition(id: string): VisualVec3 {
+  if (id === "note") return [-0.92, 1.34, 1.18];
+  return [-1, 1.32, 1.18];
+}
 
-function parseColor(value: string | undefined) {
+function parseColor(value: string | undefined): string {
   if (!value) return "#f8fafc";
-  const palette: Record<string, string> = { sky: "#bfdbfe", yellow: "#fde047", white: "#f8fafc", green: "#86efac", pink: "#f9a8d4", teal: "#5eead4" };
+
+  const palette: Record<string, string> = {
+    sky: "#bfdbfe",
+    yellow: "#fde047",
+    white: "#f8fafc",
+    green: "#86efac",
+    pink: "#f9a8d4",
+    teal: "#5eead4",
+    cyan: "#67e8f9",
+    red: "#fb7185",
+  };
+
   return palette[value] ?? value;
 }
 
@@ -526,63 +1101,118 @@ function parseActionLine(line: string): SceneObjectKeyframe[] | null {
   const parts = line.split(/\s+/);
   const action = parts[0];
   const range = parseRange(parts[1]);
+
   if (range) return parseRangeAction(parts, action, range);
+
   const atIndex = parts.indexOf("at");
   const time = Number(parts[atIndex + 1]);
+
   if (atIndex < 0 || !Number.isFinite(time)) return null;
+
   const keyframe: SceneObjectKeyframe = { time };
   const toIndex = parts.indexOf("to");
+
   if (action === "move") keyframe.position = parseVec3FromTokens(parts, toIndex + 1);
   if (action === "rotate") keyframe.rotation = parseVec3FromTokens(parts, toIndex + 1);
   if (action === "scale") keyframe.scale = parseVec3FromTokens(parts, toIndex + 1);
   if (action === "show") keyframe.opacity = 1;
   if (action === "hide") keyframe.opacity = 0;
+
   const easeIndex = parts.indexOf("ease");
   keyframe.easing = easeIndex >= 0 ? parseEasing(parts[easeIndex + 1]) : undefined;
+
   return keyframe.position || keyframe.rotation || keyframe.scale || keyframe.opacity !== undefined ? [keyframe] : null;
 }
 
-function parseRangeAction(parts: string[], action: string, range: [number, number]): SceneObjectKeyframe[] | null {
+function parseRangeAction(parts: string[], action: string | undefined, range: [number, number]): SceneObjectKeyframe[] | null {
   const fromIndex = parts.indexOf("from");
   const toIndex = parts.indexOf("to");
   const from = fromIndex >= 0 ? parseVec3FromTokens(parts, fromIndex + 1) : undefined;
   const to = toIndex >= 0 ? parseVec3FromTokens(parts, toIndex + 1) : undefined;
+
   if (!from || !to) return null;
+
   const easeIndex = parts.indexOf("ease");
-  const easing = easeIndex >= 0 ? parseEasing(parts[easeIndex + 1]) : "smoothstep";
+  const easing = easeIndex >= 0 ? parseEasing(parts[easeIndex + 1]) ?? "smoothstep" : "smoothstep";
+
   const first: SceneObjectKeyframe = { time: range[0], easing };
   const second: SceneObjectKeyframe = { time: range[1], easing };
-  if (action === "move") { first.position = from; second.position = to; }
-  else if (action === "rotate") { first.rotation = from; second.rotation = to; }
-  else if (action === "scale") { first.scale = from; second.scale = to; }
-  else return null;
+
+  if (action === "move") {
+    first.position = from;
+    second.position = to;
+  } else if (action === "rotate") {
+    first.rotation = from;
+    second.rotation = to;
+  } else if (action === "scale") {
+    first.scale = from;
+    second.scale = to;
+  } else {
+    return null;
+  }
+
   return [first, second];
 }
 
-function parseReplaceLine(line: string) {
+function parseReplaceLine(
+  line: string,
+): { hide: { objectId: string; keyframe: SceneObjectKeyframe }; show: { objectId: string; keyframe: SceneObjectKeyframe } } | null {
   const parts = line.split(/\s+/);
   const withIndex = parts.indexOf("with");
   const atIndex = parts.indexOf("at");
   const oldObject = parts[1];
   const newObject = parts[withIndex + 1];
   const time = Number(parts[atIndex + 1]);
+
   if (!oldObject || withIndex < 0 || !newObject || atIndex < 0 || !Number.isFinite(time)) return null;
+
   const easeIndex = parts.indexOf("ease");
-  const easing = easeIndex >= 0 ? parseEasing(parts[easeIndex + 1]) : "smoothstep";
-  return { hide: { objectId: oldObject, keyframe: { time, opacity: 0, easing } }, show: { objectId: newObject, keyframe: { time, opacity: 1, easing } } };
+  const easing = easeIndex >= 0 ? parseEasing(parts[easeIndex + 1]) ?? "smoothstep" : "smoothstep";
+
+  return {
+    hide: {
+      objectId: oldObject,
+      keyframe: { time, opacity: 0, easing },
+    },
+    show: {
+      objectId: newObject,
+      keyframe: { time, opacity: 1, easing },
+    },
+  };
 }
 
 function parseSlideLine(line: string, script: SceneScript): SceneSlide | null {
   if (line === "scene" || line === "slide") {
     const previous = script.slides.at(-1);
     const start = previous && Number.isFinite(previous.end) ? previous.end : 0;
-    return { start, end: start + 2, title: defaultSceneScript.title, latex: defaultSceneScript.latex };
+
+    return {
+      start,
+      end: start + 2,
+      title: defaultSceneScript.title,
+      latex: defaultSceneScript.latex,
+      effect: "cut",
+    };
   }
-  const match = line.match(/^(?:scene|slide)\s+(-?\d+(?:\.\d+)?)\s+to\s+(-?\d+(?:\.\d+)?)$/) ?? line.match(/^slide\s+(-?\d+(?:\.\d+)?)\s*\.\.\s*(-?\d+(?:\.\d+)?)$/);
+
+  const match =
+    line.match(/^(?:scene|slide)\s+(-?\d+(?:\.\d+)?)\s+to\s+(-?\d+(?:\.\d+)?)$/) ??
+    line.match(/^slide\s+(-?\d+(?:\.\d+)?)\s*\.\.\s*(-?\d+(?:\.\d+)?)$/);
+
   if (!match) return null;
-  const start = Number(match[1]); const end = Number(match[2]);
+
+  const start = Number(match[1]);
+  const end = Number(match[2]);
+
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
-  return { start, end, title: defaultSceneScript.title, latex: defaultSceneScript.latex };
+
+  return {
+    start,
+    end,
+    title: defaultSceneScript.title,
+    latex: defaultSceneScript.latex,
+    effect: "cut",
+  };
 }
 
 function parseSpinLine(line: string, fallback: SceneObjectScript["spin"]): SceneObjectScript["spin"] {
@@ -590,83 +1220,200 @@ function parseSpinLine(line: string, fallback: SceneObjectScript["spin"]): Scene
   const axis = parts[1] === "x" || parts[1] === "y" || parts[1] === "z" ? parts[1] : fallback?.axis ?? "y";
   const turns = numberOrDefault(Number(parts[2]), fallback?.turns ?? 1);
   const pivotIndex = parts.indexOf("pivot");
-  return { axis, turns, pivot: pivotIndex >= 0 ? parseVec3FromTokens(parts, pivotIndex + 1, fallback?.pivot) : fallback?.pivot };
+
+  return {
+    axis,
+    turns,
+    pivot: pivotIndex >= 0 ? parseVec3FromTokens(parts, pivotIndex + 1, fallback?.pivot) : fallback?.pivot,
+  };
 }
 
 function parseKeyframeLine(line: string, duration: number): SceneObjectKeyframe | null {
   const parts = line.split(/\s+/);
   const time = parseTimeToken(parts[1], duration);
+
   if (!Number.isFinite(time)) return null;
+
   const keyframe: SceneObjectKeyframe = { time };
   const action = parts[2];
-  if (action === "move" || action === "position") { keyframe.position = parseVec3Expression(parts, 3); keyframe.easing = parseLineEasing(parts); return keyframe.position ? keyframe : null; }
-  if (action === "rotate" || action === "rotation") { keyframe.rotation = parseVec3Expression(parts, 3, "angle"); keyframe.easing = parseLineEasing(parts); return keyframe.rotation ? keyframe : null; }
-  if (action === "scale") { keyframe.scale = parseVec3Expression(parts, 3); keyframe.easing = parseLineEasing(parts); return keyframe.scale ? keyframe : null; }
-  if (action === "show" || action === "hide") { keyframe.opacity = action === "show" ? 1 : 0; keyframe.easing = parseLineEasing(parts); return keyframe; }
+
+  if (action === "move" || action === "position") {
+    keyframe.position = parseVec3Expression(parts, 3);
+    keyframe.easing = parseLineEasing(parts);
+    return keyframe.position ? keyframe : null;
+  }
+
+  if (action === "rotate" || action === "rotation") {
+    keyframe.rotation = parseVec3Expression(parts, 3, "angle");
+    keyframe.easing = parseLineEasing(parts);
+    return keyframe.rotation ? keyframe : null;
+  }
+
+  if (action === "scale") {
+    keyframe.scale = parseVec3Expression(parts, 3);
+    keyframe.easing = parseLineEasing(parts);
+    return keyframe.scale ? keyframe : null;
+  }
+
+  if (action === "show" || action === "hide") {
+    keyframe.opacity = action === "show" ? 1 : 0;
+    keyframe.easing = parseLineEasing(parts);
+    return keyframe;
+  }
+
   for (let index = 2; index < parts.length; index += 1) {
     const token = parts[index];
-    if (token === "pos" || token === "position") { keyframe.position = parseVec3FromTokens(parts, index + 1); index += 3; }
-    else if (token === "rot" || token === "rotation") { keyframe.rotation = parseVec3FromTokens(parts, index + 1); index += 3; }
-    else if (token === "scale") { keyframe.scale = parseVec3FromTokens(parts, index + 1); index += 3; }
-    else if (token === "opacity") { keyframe.opacity = numberOrDefault(Number(parts[index + 1]), 1); index += 1; }
-    else if (token === "ease" || token === "easing") { keyframe.easing = parseEasing(parts[index + 1]); index += 1; }
+
+    if (token === "pos" || token === "position") {
+      keyframe.position = parseVec3FromTokens(parts, index + 1);
+      index += 3;
+    } else if (token === "rot" || token === "rotation") {
+      keyframe.rotation = parseVec3FromTokens(parts, index + 1);
+      index += 3;
+    } else if (token === "scale") {
+      keyframe.scale = parseVec3FromTokens(parts, index + 1);
+      index += 3;
+    } else if (token === "opacity") {
+      keyframe.opacity = numberOrDefault(Number(parts[index + 1]), 1);
+      index += 1;
+    } else if (token === "ease" || token === "easing") {
+      keyframe.easing = parseEasing(parts[index + 1]);
+      index += 1;
+    }
   }
+
   return keyframe.position || keyframe.rotation || keyframe.scale || keyframe.opacity !== undefined ? keyframe : null;
 }
 
-function parseVec3FromTokens(parts: string[], start: number, fallback?: [number, number, number]) {
+function parseVec3FromTokens(parts: string[], start: number, fallback?: VisualVec3): VisualVec3 | undefined {
   const tuple = [Number(parts[start]), Number(parts[start + 1]), Number(parts[start + 2])];
+
   if (tuple.some((item) => !Number.isFinite(item))) return fallback;
-  return tuple as [number, number, number];
+
+  return tuple as VisualVec3;
 }
 
-function parseVec3Expression(parts: string[], start: number, mode: "number" | "angle" = "number", fallback?: [number, number, number]) {
+function parseVec3Expression(
+  parts: string[],
+  start: number,
+  mode: "number" | "angle" = "number",
+  fallback?: VisualVec3,
+): VisualVec3 | undefined {
   const named = mode === "number" ? namedPosition(parts[start]) : undefined;
   if (named) return named;
+
   const direct = parseVec3FromTokens(parts, start);
-  if (direct) return mode === "angle" ? (direct.map((value) => value) as [number, number, number]) : direct;
-  const tuple: [number, number, number] = fallback ?? [0, 0, 0];
+  if (direct) return direct;
+
+  const tuple: VisualVec3 = fallback ?? [0, 0, 0];
   let found = false;
+
   for (let index = start; index < parts.length - 1; index += 1) {
     const axis = parts[index];
+
     if (axis !== "x" && axis !== "y" && axis !== "z") continue;
-    const value = mode === "angle" ? parseAngle(parts[index + 1]) : Number(parts[index + 1]);
+
+    const value = mode === "angle" ? parseAngle(parts[index + 1] ?? "0") : Number(parts[index + 1]);
+
     if (!Number.isFinite(value)) continue;
+
     tuple[axis === "x" ? 0 : axis === "y" ? 1 : 2] = value;
     found = true;
     index += 1;
   }
+
   return found ? tuple : fallback;
 }
 
 function namedPosition(value: string | undefined): VisualVec3 | undefined {
-  const positions: Record<string, VisualVec3> = { center: [0, 0, 0], right: [0.38, 0.04, 0.06], left: [-0.38, 0.04, 0.06], up: [0, 0.28, 0], down: [0, -0.2, 0], front: [0, 0.04, 0.38], back: [0, 0.04, -0.38] };
+  const positions: Record<string, VisualVec3> = {
+    center: [0, 0, 0],
+    right: [0.38, 0.04, 0.06],
+    left: [-0.38, 0.04, 0.06],
+    up: [0, 0.28, 0],
+    down: [0, -0.2, 0],
+    front: [0, 0.04, 0.38],
+    back: [0, 0.04, -0.38],
+  };
+
   return value ? positions[value] : undefined;
 }
 
-function parseAngle(value: string) {
+function parseAngle(value: string): number {
   const normalized = value.trim().toLowerCase();
   const number = Number(normalized.replace(/(degrees|degree|deg|grad|radians|radian|rad)$/u, ""));
+
   if (!Number.isFinite(number)) return 0;
-  if (normalized.endsWith("deg") || normalized.endsWith("degree") || normalized.endsWith("degrees") || normalized.endsWith("grad")) return (number * Math.PI) / 180;
+
+  if (
+    normalized.endsWith("deg") ||
+    normalized.endsWith("degree") ||
+    normalized.endsWith("degrees") ||
+    normalized.endsWith("grad")
+  ) {
+    return (number * Math.PI) / 180;
+  }
+
   return number;
 }
 
-function parseLineEasing(parts: string[]) { const easeIndex = parts.indexOf("ease"); return easeIndex >= 0 ? parseEasing(parts[easeIndex + 1]) : "smoothstep"; }
+function parseLineEasing(parts: string[]): EasingId {
+  const easeIndex = parts.indexOf("ease");
+  return easeIndex >= 0 ? parseEasing(parts[easeIndex + 1]) ?? "smoothstep" : "smoothstep";
+}
+
 function parseRange(value: string | undefined): [number, number] | null {
   const match = value?.match(/^(-?\d+(?:\.\d+)?)\.\.(-?\d+(?:\.\d+)?)$/);
+
   if (!match) return null;
-  const start = Number(match[1]); const end = Number(match[2]);
+
+  const start = Number(match[1]);
+  const end = Number(match[2]);
+
   return Number.isFinite(start) && Number.isFinite(end) && end >= start ? [start, end] : null;
 }
-function numberOrDefault(value: unknown, fallback: number) { return typeof value === "number" && Number.isFinite(value) ? value : fallback; }
+
+function numberOrDefault(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
 function parseSlides(value: unknown, title: unknown, latex: unknown): SceneSlide[] {
-  if (!Array.isArray(value)) return [{ start: 0, end: Number.POSITIVE_INFINITY, title: typeof title === "string" ? title : defaultSceneScript.title, latex: typeof latex === "string" ? latex : defaultSceneScript.latex }];
-  const slides = value.map<SceneSlide | null>((item) => {
-    if (!item || typeof item !== "object") return null;
-    const candidate = item as Partial<SceneSlide>;
-    return { start: numberOrDefault(candidate.start, 0), end: numberOrDefault(candidate.end, Number.POSITIVE_INFINITY), title: typeof candidate.title === "string" ? candidate.title : defaultSceneScript.title, latex: typeof candidate.latex === "string" ? candidate.latex : defaultSceneScript.latex, effect: parseSlideEffect(candidate.effect) };
-  }).filter((item): item is SceneSlide => item !== null).sort((a, b) => a.start - b.start);
+  if (!Array.isArray(value)) {
+    return [
+      {
+        start: 0,
+        end: Number.POSITIVE_INFINITY,
+        title: typeof title === "string" ? title : defaultSceneScript.title,
+        latex: typeof latex === "string" ? latex : defaultSceneScript.latex,
+        effect: "cut",
+      },
+    ];
+  }
+
+  const slides = value
+    .map<SceneSlide | null>((item) => {
+      if (!item || typeof item !== "object") return null;
+
+      const candidate = item as Partial<SceneSlide>;
+
+      return {
+        start: numberOrDefault(candidate.start, 0),
+        end: numberOrDefault(candidate.end, Number.POSITIVE_INFINITY),
+        title: typeof candidate.title === "string" ? candidate.title : defaultSceneScript.title,
+        latex: typeof candidate.latex === "string" ? candidate.latex : defaultSceneScript.latex,
+        effect: parseSlideEffect(candidate.effect),
+      };
+    })
+    .filter((item): item is SceneSlide => item !== null)
+    .sort((a, b) => a.start - b.start);
+
   return slides.length > 0 ? slides : defaultSceneScript.slides;
 }
-function sliceByProgress(value: string, progress: number) { return value.slice(0, Math.max(1, Math.ceil(value.length * progress))); }
+
+function sliceByProgress(value: string, progress: number): string {
+  return value.slice(0, Math.max(1, Math.ceil(value.length * progress)));
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
