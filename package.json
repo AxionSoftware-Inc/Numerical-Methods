@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@methodslab/methods-engine": "file:packages/methods-engine",
+    "@methodslab/scene-dsl": "file:packages/scene-dsl",
     "@methodslab/video-engine": "file:packages/video-engine",
     "@methodslab/visual-engine": "file:packages/visual-engine",
     "jszip": "^3.10.1",

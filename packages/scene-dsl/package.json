@@ -1,0 +1,13 @@
+{
+  "name": "@methodslab/scene-dsl",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./core": "./src/core/index.ts"
+  },
+  "dependencies": {
+    "@methodslab/video-engine": "file:../video-engine",
+    "@methodslab/visual-engine": "file:../visual-engine"
+  }
+}

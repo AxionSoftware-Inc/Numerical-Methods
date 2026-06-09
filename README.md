@@ -1,36 +1,121 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# MethodsLab
 
-## Getting Started
+MethodsLab hozir ikki asosiy yo'nalishda ishlayapti:
 
-First, run the development server:
+- `Analyzer` -> matematik metodlarni vizual tahlil qilish
+- `Video Lab` -> shu vizual sahnalardan video/animatsiya sahna qurish
+
+## Ishga tushirish
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Brauzer:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- `http://localhost:3000` -> landing
+- `http://localhost:3000/analyzer` -> analyzer
+- `http://localhost:3000/video-lab` -> video lab
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Routing
 
-## Learn More
+- [app/page.tsx](/Users/i/Documents/methodslab/app/page.tsx)
+  - landing
+- [app/analyzer/page.tsx](/Users/i/Documents/methodslab/app/analyzer/page.tsx)
+  - analyzer entry
+- [app/video-lab/video-lab.tsx](/Users/i/Documents/methodslab/app/video-lab/video-lab.tsx)
+  - video lab UI, parser, preview orchestration
 
-To learn more about Next.js, take a look at the following resources:
+## Paketlar
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- [packages/visual-engine](/Users/i/Documents/methodslab/packages/visual-engine)
+  - 3D vizual sahna engine
+- [packages/video-engine](/Users/i/Documents/methodslab/packages/video-engine)
+  - timeline va render contract
+- [packages/methods-engine](/Users/i/Documents/methodslab/packages/methods-engine)
+  - matematik hisob va trace qatlamlari
+- [packages/scene-dsl](/Users/i/Documents/methodslab/packages/scene-dsl)
+  - video sahna kodini parse qiladigan modul
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Video Lab scene code
 
-## Deploy on Vercel
+Default loyiha sodda scene code bilan ochiladi:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```txt
+config:
+  duration: 10
+  camera: default
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+object volume:
+
+slide "Yangi sahna":
+  camera: default
+  latex:
+```
+
+## Kamera presetlari
+
+Scene code ichida ishlatish mumkin:
+
+```txt
+camera: default
+camera: left
+camera: right
+camera: top
+camera: zoom
+camera: reset
+```
+
+`default` hozir sahnani tepaki burchakdan ko'rsatadi, Blender default ko'rinishiga yaqin.
+
+## Qayerga nima yoziladi
+
+### Yangi preview obyekt
+
+`app/video-lab/video-lab.tsx`
+
+- `DefaultProjectViewport(...)`
+- `createNewProjectSceneSpec()`
+
+### Yangi scene code buyruqlari
+
+`app/video-lab/video-lab.tsx`
+
+- `parseSceneScript(...)`
+- `handleColonInstruction(...)`
+- `parseActionLine(...)`
+- `parseCameraLine(...)`
+
+### Timeline va render mantig'i
+
+`packages/video-engine/src/core/*`
+
+### Visual layerlar
+
+`packages/visual-engine/src/*`
+
+## Arxitektura hujjati
+
+To'liqroq izoh:
+
+- [docs/video-engine-architecture.md](/Users/i/Documents/methodslab/docs/video-engine-architecture.md)
+
+## Hozirgi holat
+
+- default `New Project` qora fon bilan ochiladi
+- default sahnada bitta 3D integral obyekt ko'rinadi
+- kamera tepaki burchakdan qaraydi
+- preview ichida sichqoncha bilan aylantirish va zoom ishlaydi
+- orbit paytida kamera markaz atrofida yuradi, obyektning o'zi aylantirilmaydi
+- markazda qo'zg'almas o'q bor
+- WebM va PNG sequence export bor
+
+## Keyingi tavsiya
+
+Eng to'g'ri keyingi yo'nalish:
+
+1. scene DSL'ni alohida package qilish
+2. camera controller'ni reusable modulga ajratish
+3. text/latex animation layerini kuchaytirish
+4. keyin GUI/timeline editor qo'shish
