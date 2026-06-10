@@ -1,18 +1,46 @@
 import type { CameraTrackSpec, OrbitCameraTrackOptions } from "./types";
 
-export function createOrbitCameraTrack(options: OrbitCameraTrackOptions): CameraTrackSpec {
+export function createOrbitCameraTrack(options: {
+  duration: number;
+  radius?: number;
+  height?: number;
+  target?: [number, number, number];
+  turns?: number;
+  easing?: string;
+  distanceLimits?: {
+    minDistance?: number;
+    maxDistance?: number;
+  };
+}) {
+  const duration = Math.max(0.001, options.duration);
+  const radius = options.radius ?? 5.4;
+  const height = Math.max(1.6, options.height ?? 3.0);
+  const target = options.target ?? [0, -0.1, 0];
+  const turns = options.turns ?? 0.55;
+  const easing = options.easing ?? "ease-in-out-cubic";
+
+  const samples = 90;
+
   return {
-    kind: "orbit",
-    duration: options.duration,
-    radius: options.radius ?? 5.6,
-    height: options.height ?? 3.2,
-    target: options.target ?? [0, 0, 0],
-    startAngle: options.startAngle ?? -Math.PI * 0.72,
-    turns: options.turns ?? 1,
-    fov: options.fov ?? 46,
-    minDistance: options.distanceLimits?.minDistance ?? 1.8,
-    maxDistance: options.distanceLimits?.maxDistance ?? 12,
-    easing: options.easing ?? "smoothstep",
+    kind: "keyframes" as const,
+    keyframes: Array.from({ length: samples + 1 }, (_, index) => {
+      const progress = index / samples;
+      const angle = progress * Math.PI * 2 * turns + Math.PI * 0.18;
+
+      return {
+        time: progress * duration,
+        position: [
+          target[0] + Math.cos(angle) * radius,
+          target[1] + height,
+          target[2] + Math.sin(angle) * radius,
+        ] as [number, number, number],
+        target,
+        fov: 42,
+        minDistance: options.distanceLimits?.minDistance ?? 1.8,
+        maxDistance: options.distanceLimits?.maxDistance ?? 14,
+        easing,
+      };
+    }),
   };
 }
 

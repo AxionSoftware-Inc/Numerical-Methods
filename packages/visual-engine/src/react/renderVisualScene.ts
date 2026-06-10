@@ -14,6 +14,7 @@ import type {
   VisualMeshLayerSpec,
   VisualPathLayerSpec,
   VisualPlaneLayerSpec,
+  VisualPointCloudLayerSpec,
   VisualRingLayerSpec,
   VisualSceneSpec,
   VisualTransformSpec,
@@ -48,6 +49,8 @@ function renderLayerContent(layer: VisualLayerSpec): THREE.Object3D {
       return renderLineLayer(layer);
     case "path":
       return renderPathLayer(layer);
+    case "point-cloud":
+      return renderPointCloudLayer(layer);
     case "marker":
       return renderMarkerLayer(layer);
     case "ring":
@@ -180,6 +183,29 @@ function renderPathLayer(layer: VisualPathLayerSpec): THREE.Object3D {
 
   line.name = layer.id;
   return line;
+}
+
+function renderPointCloudLayer(layer: VisualPointCloudLayerSpec): THREE.Object3D {
+  const geometry = new THREE.BufferGeometry();
+
+  geometry.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute(layer.points.flat(), 3),
+  );
+
+  const material = new THREE.PointsMaterial({
+    color: toThreeColor(layer.color),
+    transparent: layer.opacity !== undefined || layer.opacity !== 1,
+    opacity: layer.opacity ?? 1,
+    size: layer.size ?? 0.035,
+    sizeAttenuation: layer.sizeAttenuation ?? true,
+    depthTest: layer.depthTest ?? true,
+  });
+
+  const points = new THREE.Points(geometry, material);
+  points.name = layer.id;
+
+  return points;
 }
 
 function renderMarkerLayer(layer: VisualMarkerLayerSpec): THREE.Object3D {

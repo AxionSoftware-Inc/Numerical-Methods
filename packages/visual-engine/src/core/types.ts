@@ -16,6 +16,7 @@ export type VisualLayerKind =
   | "mesh"
   | "lines"
   | "path"
+  | "point-cloud"
   | "marker"
   | "ring"
   | "box-outline"
@@ -211,6 +212,16 @@ export type VisualPathLayerSpec = VisualLayerBase & {
   depthTest?: boolean;
 };
 
+export type VisualPointCloudLayerSpec = VisualLayerBase & {
+  kind: "point-cloud";
+  points: VisualVec3[];
+  color: VisualColor;
+  opacity?: number;
+  size?: number;
+  depthTest?: boolean;
+  sizeAttenuation?: boolean;
+};
+
 export type VisualMarkerLayerSpec = VisualLayerBase & {
   kind: "marker";
   position: VisualVec3;
@@ -312,6 +323,7 @@ export type VisualLayerSpec =
   | VisualMeshLayerSpec
   | VisualLineLayerSpec
   | VisualPathLayerSpec
+  | VisualPointCloudLayerSpec
   | VisualMarkerLayerSpec
   | VisualRingLayerSpec
   | VisualBoxOutlineLayerSpec

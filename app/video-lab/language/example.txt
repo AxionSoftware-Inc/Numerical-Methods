@@ -1,0 +1,305 @@
+Zo‘r. Demak birinchi **math primitive — `graph`** builddan o‘tdi.
+
+Endi 2-bosqichdagi keyingi mantiqiy primitive:
+
+```txt
+area
+```
+
+Ya’ni:
+
+```txt
+graph g = sin(x) from 0 to pi color cyan
+area a = sin(x) from 0 to pi color yellow opacity 0.45
+```
+
+Hozircha `area`ni og‘ir render qilmaymiz. Ichkarida expression sample qilinadi va `closed path` sifatida sahnaga qo‘shiladi. Keyin visual-engine’da fill/polygon layer qo‘shsak, shu command avtomatik chiroyliroq ko‘rinadi.
+
+## 1. Yangi fayl och
+
+```txt
+app/video-lab/language/primitives/math/area.ts
+```
+
+Ichiga qo‘y:
+
+```ts
+import type { VideoLabCommand } from "../../commands";
+import {
+  parseNamedColor,
+  parseNamedNumber,
+  resolveNumber,
+} from "../../values";
+import { compileMathExpression, sampleExpression } from "./expression";
+
+export const areaCommand: VideoLabCommand = {
+  name: "area",
+  category: "math",
+  description: "Sample y = f(x) and render a closed area path under the graph.",
+  examples: [
+    `area a = sin(x) from 0 to pi color yellow opacity 0.45`,
+    `area p = x^2 from -1 to 1 color cyan opacity 0.35`,
+  ],
+
+  compile({ context, tokens, lineNumber }) {
+    const id = tokens[1];
+
+    if (!id) {
+      context.warnings.push(
+        `Line ${lineNumber}: area id missing. Example: area a = sin(x) from 0 to pi.`,
+      );
+      return;
+    }
+
+    const equalsIndex = tokens.indexOf("=");
+    const fromIndex = tokens.indexOf("from");
+    const toIndex = tokens.indexOf("to");
+
+    if (equalsIndex < 0) {
+      context.warnings.push(
+        `Line ${lineNumber}: area is missing "=". Example: area a = sin(x) from 0 to pi.`,
+      );
+      return;
+    }
+
+    if (fromIndex < 0 || toIndex < 0) {
+      context.warnings.push(
+        `Line ${lineNumber}: area needs range. Example: area a = sin(x) from 0 to pi.`,
+      );
+      return;
+    }
+
+    const expressionEnd = Math.min(fromIndex, toIndex);
+    const expressionSource = tokens.slice(equalsIndex + 1, expressionEnd).join("");
+
+    if (!expressionSource) {
+      context.warnings.push(`Line ${lineNumber}: area expression missing.`);
+      return;
+    }
+
+    try {
+      const expression = compileMathExpression(expressionSource);
+      const from = resolveNumber(tokens[fromIndex + 1], context, 0);
+      const to = resolveNumber(tokens[toIndex + 1], context, Math.PI);
+      const samples = Math.round(parseNamedNumber(tokens, "samples", context, 96));
+      const scale = parseNamedNumber(tokens, "scale", context, 0.55);
+      const yScale = parseNamedNumber(tokens, "yscale", context, scale);
+      const z = parseNamedNumber(tokens, "z", context, 0.01);
+      const color = parseNamedColor(tokens, "color", context, "#fde047");
+      const opacity = parseNamedNumber(tokens, "opacity", context, 0.45);
+
+      const curvePoints = sampleExpression({
+        expression,
+        from,
+        to,
+        samples,
+        scale,
+        yScale,
+        z,
+      });
+
+      if (curvePoints.length < 2) {
+        context.warnings.push(`Line ${lineNumber}: area produced too few valid points.`);
+        return;
+      }
+
+      const first = curvePoints[0];
+      const last = curvePoints[curvePoints.length - 1];
+
+      const closedAreaPoints: Array<[number, number, number]> = [
+        [first[0], 0, z],
+        ...curvePoints,
+        [last[0], 0, z],
+      ];
+
+      context.scene.path(closedAreaPoints, {
+        id,
+        objectId: id,
+        color,
+        opacity,
+        closed: true,
+      });
+    } catch (error) {
+      context.warnings.push(
+        `Line ${lineNumber}: ${
+          error instanceof Error ? error.message : "Could not compile area."
+        }`,
+      );
+    }
+  },
+
+  diagnose({ tokens, lineNumber }) {
+    const diagnostics = [];
+
+    if (!tokens[1]) {
+      diagnostics.push({
+        lineNumber,
+        message: `Area id missing. Example: area a = sin(x) from 0 to pi.`,
+      });
+    }
+
+    if (!tokens.includes("=")) {
+      diagnostics.push({
+        lineNumber,
+        message: `Area is missing "=". Example: area a = sin(x) from 0 to pi.`,
+      });
+    }
+
+    if (!tokens.includes("from") || !tokens.includes("to")) {
+      diagnostics.push({
+        lineNumber,
+        message: `Area needs range. Example: area a = sin(x) from 0 to pi.`,
+      });
+    }
+
+    return diagnostics;
+  },
+
+  completions: [
+    {
+      label: "area",
+      insertText: "area ${1:a} = ${2:sin(x)} from ${3:0} to ${4:pi} color ${5:yellow} opacity ${6:0.45}",
+      detail: "Create area under graph",
+    },
+  ],
+};
+```
+
+## 2. `math/index.ts`ni yangila
+
+```txt
+app/video-lab/language/primitives/math/index.ts
+```
+
+Shunday bo‘lsin:
+
+```ts
+export * from "./area";
+export * from "./expression";
+export * from "./graph";
+```
+
+## 3. `createVideoLabProject.ts`ga ulang
+
+Importni yangila:
+
+```ts
+import { areaCommand, graphCommand } from "./language/primitives/math";
+```
+
+`parseCommand` ichida `graph` yoniga qo‘sh:
+
+```ts
+if (command === "area") {
+  areaCommand.compile({
+    context,
+    tokens,
+    lineNumber,
+  });
+  return;
+}
+```
+
+## 4. `symbols.ts`ga `area` qo‘sh
+
+`OBJECT_COMMANDS` ichiga:
+
+```ts
+"area",
+```
+
+`objectIdsFromCommand` ichidagi object id qaytaradigan blokka ham:
+
+```ts
+command === "area" ||
+```
+
+## 5. `intellisense.ts`ga `area` qo‘sh
+
+Importni yangila:
+
+```ts
+import { areaCommand, graphCommand } from "./primitives/math";
+```
+
+`OBJECT_COMMANDS` ichiga:
+
+```ts
+"area",
+```
+
+`diagnoseLine` ichida graph diagnostikasi yoniga qo‘sh:
+
+```ts
+if (command === "area") {
+  const areaDiagnostics = areaCommand.diagnose?.({
+    tokens,
+    lineNumber,
+  }) ?? [];
+
+  diagnostics.push(...areaDiagnostics);
+}
+```
+
+## 6. `monacoLanguage.ts`ga qo‘sh
+
+`KEYWORDS` ichiga:
+
+```ts
+"area",
+```
+
+`COMPLETIONS` ichiga:
+
+```ts
+{
+  label: "area",
+  insertText: "area ${1:a} = ${2:sin(x)} from ${3:0} to ${4:pi} color ${5:yellow} opacity ${6:0.45}",
+  detail: "Create area under graph",
+},
+```
+
+## 7. `reference.ts`ga qo‘sh
+
+`VIDEO_LAB_REFERENCE` ichiga:
+
+```ts
+{
+  id: "area",
+  title: "Area",
+  category: "objects",
+  description: "Function ostidagi maydonni closed path sifatida yaratadi.",
+  examples: [
+    `area a = sin(x) from 0 to pi color yellow opacity 0.45`,
+    `area p = x^2 from -1 to 1 color cyan opacity 0.35`,
+    `show a from 0 in 0.8s`,
+  ],
+},
+```
+
+## 8. Tekshir
+
+```bash
+npm run lint
+npm run build
+npm run dev
+```
+
+Sinov kodi:
+
+```txt
+scene "Area Test"
+duration = 6
+
+grid
+axes
+
+graph g = sin(x) from 0 to pi color cyan
+area a = sin(x) from 0 to pi color yellow opacity 0.45
+
+show a from 0 in 0.8s
+show g from 0 in 1s
+highlight g in 0.7s
+```
+
+Toza bo‘lsa, math primitive’larimiz endi `graph + area` bo‘ladi.

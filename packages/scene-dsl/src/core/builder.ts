@@ -10,6 +10,7 @@ import type {
   SceneObjectId,
   SceneObjectRef,
 } from "./types";
+import type { VisualSceneSpec } from "@methodslab/visual-engine/core";
 
 export type MathSceneOptions = SceneBuildOptions & {
   camera?: SceneCameraSpec;
@@ -321,6 +322,48 @@ export class MathSceneBuilder implements SceneBuilderApi {
       opacity: options.opacity,
       rotation: options.rotation,
     }) as SceneObjectRef<"plane">;
+  }
+
+    surface(
+    scene: VisualSceneSpec,
+    options: {
+      id?: string;
+      objectId?: string;
+      name?: string;
+      opacity?: number;
+    } = {},
+  ): SceneObjectRef<"surface"> {
+    const id = options.id ?? this.nextObjectId("surface");
+
+    return this.add({
+      id,
+      kind: "surface",
+      objectId: options.objectId ?? id,
+      name: options.name,
+      scene,
+      opacity: options.opacity,
+    }) as SceneObjectRef<"surface">;
+  }
+
+  custom(
+    scene: VisualSceneSpec,
+    options: {
+      id?: string;
+      objectId?: string;
+      name?: string;
+      opacity?: number;
+    } = {},
+  ): SceneObjectRef<"custom"> {
+    const id = options.id ?? this.nextObjectId("custom");
+
+    return this.add({
+      id,
+      kind: "custom",
+      objectId: options.objectId ?? id,
+      name: options.name,
+      scene,
+      opacity: options.opacity,
+    }) as SceneObjectRef<"custom">;
   }
 
   play(...animations: SceneAnimation[]): SceneCommand {

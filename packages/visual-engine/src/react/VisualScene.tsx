@@ -261,8 +261,10 @@ function layerContentKey(layer: VisualSceneSpec["layers"][number]): string {
       return [
         ...base,
         layer.positions.length,
+        numberArrayContentKey(layer.positions),
         layer.indices.length,
         layer.colors?.length ?? 0,
+        layer.colors ? numberArrayContentKey(layer.colors) : "",
         layer.material.opacity ?? "",
         layer.fill === false ? "wire-only" : "fill",
         layer.wireframe?.opacity ?? "",
@@ -280,9 +282,22 @@ function layerContentKey(layer: VisualSceneSpec["layers"][number]): string {
       return [
         ...base,
         layer.points.length,
+        vec3ArrayContentKey(layer.points),
         layer.color,
         layer.opacity ?? "",
         layer.closed ? "closed" : "open",
+      ].join(",");
+
+    case "point-cloud":
+      return [
+        ...base,
+        layer.points.length,
+        vec3ArrayContentKey(layer.points),
+        layer.color,
+        layer.opacity ?? "",
+        layer.size ?? "",
+        layer.depthTest === false ? "no-depth" : "depth",
+        layer.sizeAttenuation === false ? "no-attenuation" : "attenuation",
       ].join(",");
 
     case "marker":
@@ -357,6 +372,36 @@ function layerContentKey(layer: VisualSceneSpec["layers"][number]): string {
         layer.layers.map(layerContentKey).join(";"),
       ].join(",");
   }
+}
+
+function numberArrayContentKey(values: number[]): string {
+  return sampleSignature(values, 192).join(",");
+}
+
+function vec3ArrayContentKey(values: Array<[number, number, number]>): string {
+  const flattened: number[] = [];
+
+  values.forEach((point) => {
+    flattened.push(point[0], point[1], point[2]);
+  });
+
+  return sampleSignature(flattened, 192).join(",");
+}
+
+function sampleSignature(values: number[], limit: number): string[] {
+  if (values.length === 0) {
+    return ["0"];
+  }
+
+  const step = Math.max(1, Math.floor(values.length / limit));
+  const signature: string[] = [];
+
+  for (let index = 0; index < values.length; index += step) {
+    signature.push(Math.round(values[index] * 1000) / 1000 + "");
+  }
+
+  signature.push(`len:${values.length}`);
+  return signature;
 }
 
 function clearGroup(group: THREE.Group): void {

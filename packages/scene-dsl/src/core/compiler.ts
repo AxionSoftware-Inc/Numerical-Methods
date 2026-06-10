@@ -1,4 +1,5 @@
 import type {
+  EasingId,
   ObjectTrackSpec,
   TimelineSpec,
   VideoProjectSpec,
@@ -33,6 +34,17 @@ export type SceneCompilerOptions = {
   background?: string;
 };
 
+const EASING_IDS = new Set<EasingId>([
+  "linear",
+  "smoothstep",
+  "ease-in",
+  "ease-out",
+  "ease-in-out",
+  "ease-in-cubic",
+  "ease-out-cubic",
+  "ease-in-out-cubic",
+]);
+
 export function compileSceneToVisualScene(
   spec: SceneDslSpec,
   options: SceneCompilerOptions = {},
@@ -47,10 +59,10 @@ export function compileSceneToVisualScene(
       ambientLight: 1.12,
     },
     camera: {
-      position: spec.camera?.position ?? [3.8, -5.1, 3.1],
-      target: spec.camera?.target ?? [0, 0.08, 0],
-      fov: spec.camera?.fov ?? 45,
-      minDistance: spec.camera?.minDistance ?? 1.6,
+      position: spec.camera?.position ?? [3.8, 3.2, 4.8],
+      target: spec.camera?.target ?? [0, -0.1, 0],
+      fov: spec.camera?.fov ?? 42,
+      minDistance: spec.camera?.minDistance ?? 1.8,
       maxDistance: spec.camera?.maxDistance ?? 14,
     },
     layers: spec.objects.flatMap((object) => compileObjectToLayers(object)),
@@ -325,11 +337,11 @@ function compileCameraAnimation(spec: SceneDslSpec, duration: number): TimelineS
   }
 
   if (animation.kind === "orbit") {
-    return createOrbitCameraTrack({
+    const track = createOrbitCameraTrack({
       duration: animation.duration ?? duration,
       radius: animation.radius,
       height: animation.height,
-      target: animation.target ?? spec.camera?.target ?? [0, 0.08, 0],
+      target: animation.target ?? spec.camera?.target ?? [0, -0.1, 0],
       turns: animation.turns ?? 0.6,
       easing: animation.easing ?? "ease-in-out-cubic",
       distanceLimits: {
@@ -337,6 +349,14 @@ function compileCameraAnimation(spec: SceneDslSpec, duration: number): TimelineS
         maxDistance: spec.camera?.maxDistance ?? 14,
       },
     });
+
+    return {
+      kind: "keyframes",
+      keyframes: track.keyframes.map((keyframe) => ({
+        ...keyframe,
+        easing: toEasingId(keyframe.easing),
+      })),
+    };
   }
 
   return {
@@ -593,4 +613,8 @@ function inferDuration(spec: SceneDslSpec): number {
 function getBackground(spec: SceneDslSpec): string | undefined {
   const background = spec.metadata?.background;
   return typeof background === "string" ? background : undefined;
+}
+
+function toEasingId(easing: string | undefined): EasingId | undefined {
+  return easing && EASING_IDS.has(easing as EasingId) ? (easing as EasingId) : undefined;
 }
