@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
 import {
@@ -25,6 +25,7 @@ export function VideoLabEditor({
 }: VideoLabEditorProps) {
     const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
     const monacoRef = useRef<typeof Monaco | null>(null);
+    const [fontSize, setFontSize] = useState(13);
 
     const handleMount: OnMount = (editor, monaco) => {
         editorRef.current = editor;
@@ -68,6 +69,39 @@ export function VideoLabEditor({
         setVideoLabCompletionData(analysis.completions);
     }, [value]);
 
+    useEffect(() => {
+        const editor = editorRef.current;
+        if (!editor) return;
+
+        editor.updateOptions({
+            fontSize,
+            lineHeight: Math.round(fontSize * 1.7),
+        });
+    }, [fontSize]);
+
+    useEffect(() => {
+        const editor = editorRef.current;
+        const node = editor?.getDomNode();
+        if (!editor || !node) return;
+
+        function handleWheel(event: WheelEvent) {
+            if (!event.ctrlKey && !event.metaKey) return;
+
+            event.preventDefault();
+
+            setFontSize((current) => {
+                const direction = event.deltaY < 0 ? 1 : -1;
+                return Math.max(11, Math.min(24, current + direction));
+            });
+        }
+
+        node.addEventListener("wheel", handleWheel, { passive: false });
+
+        return () => {
+            node.removeEventListener("wheel", handleWheel);
+        };
+    }, []);
+
     return (
         <Editor
             beforeMount={(monaco) => {
@@ -79,11 +113,11 @@ export function VideoLabEditor({
             language={VIDEO_LAB_LANGUAGE_ID}
             options={{
                 minimap: { enabled: false },
-                fontSize: 13,
+                fontSize,
                 fontFamily:
                     "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-                lineHeight: 22,
-                padding: { top: 14, bottom: 14 },
+                lineHeight: Math.round(fontSize * 1.7),
+                padding: { top: 8, bottom: 8 },
                 scrollBeyondLastLine: false,
                 wordWrap: "on",
                 tabSize: 2,

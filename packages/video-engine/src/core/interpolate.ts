@@ -55,6 +55,8 @@ export function sampleCameraKeyframes(
     maxDistance: lerp(fromCamera.maxDistance, toCamera.maxDistance, t),
     near: lerpOptionalNumber(fromCamera.near, toCamera.near, t),
     far: lerpOptionalNumber(fromCamera.far, toCamera.far, t),
+    projection: toCamera.projection ?? fromCamera.projection ?? baseCamera.projection,
+    orthographicSize: lerpOptionalNumber(fromCamera.orthographicSize, toCamera.orthographicSize, t),
     metadata: {
       ...baseCamera.metadata,
       ...fromCamera.metadata,
@@ -91,6 +93,8 @@ export function sampleOrbitCameraTrack(
     maxDistance: track.maxDistance ?? baseCamera.maxDistance,
     near: baseCamera.near,
     far: baseCamera.far,
+    projection: baseCamera.projection,
+    orthographicSize: baseCamera.orthographicSize,
     metadata: {
       ...baseCamera.metadata,
       ...track.metadata,
@@ -122,6 +126,7 @@ export function sampleTransformKeyframes(
     scale: lerpOptionalVec3(from.transform.scale, to.transform.scale, t),
     pivot: to.transform.pivot ?? from.transform.pivot,
     opacity: lerpOptionalNumber(from.transform.opacity, to.transform.opacity, t),
+    revealProgress: lerpOptionalNumber(from.transform.revealProgress, to.transform.revealProgress, t),
     mode: to.transform.mode ?? from.transform.mode,
   };
 }
@@ -219,6 +224,7 @@ export function composeTransform(
       scale: next.scale ?? base?.scale,
       pivot: next.pivot ?? base?.pivot,
       opacity: next.opacity ?? base?.opacity,
+      revealProgress: next.revealProgress ?? base?.revealProgress,
       mode,
     };
   }
@@ -229,6 +235,7 @@ export function composeTransform(
     scale: multiplyOptionalVec3(base?.scale, next.scale) ?? next.scale ?? base?.scale,
     pivot: next.pivot ?? base?.pivot,
     opacity: next.opacity ?? base?.opacity,
+    revealProgress: next.revealProgress ?? base?.revealProgress,
     mode,
   };
 }

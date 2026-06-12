@@ -64,6 +64,8 @@ export function compileSceneToVisualScene(
       fov: spec.camera?.fov ?? 42,
       minDistance: spec.camera?.minDistance ?? 1.8,
       maxDistance: spec.camera?.maxDistance ?? 14,
+      projection: spec.camera?.projection,
+      orthographicSize: spec.camera?.orthographicSize,
     },
     layers: spec.objects.flatMap((object) => compileObjectToLayers(object)),
     metadata: {
@@ -390,6 +392,29 @@ function compileAnimationToTracks(
 
   switch (animation.kind) {
     case "write":
+      return [
+        {
+          kind: "fade",
+          objectId: targetId(animation.target),
+          from: 0,
+          to: 1,
+          startTime: start,
+          endTime: end,
+          easing: animation.easing ?? "ease-out-cubic",
+          mode: "absolute",
+        },
+        {
+          kind: "reveal",
+          objectId: targetId(animation.target),
+          from: 0,
+          to: 1,
+          startTime: start,
+          endTime: end,
+          easing: animation.easing ?? "ease-out-cubic",
+          mode: "absolute",
+        },
+      ];
+
     case "fade-in":
       return [
         {
@@ -403,6 +428,46 @@ function compileAnimationToTracks(
           mode: "absolute",
         },
       ];
+
+    case "drop-in": {
+      const offset = dropOffset(animation.direction ?? "top", animation.distance ?? 0.55);
+
+      return [
+        {
+          kind: "fade",
+          objectId: targetId(animation.target),
+          from: 0,
+          to: 1,
+          startTime: start,
+          endTime: end,
+          easing: animation.easing ?? "ease-out-cubic",
+          mode: "absolute",
+        },
+        {
+          kind: "keyframes",
+          objectId: targetId(animation.target),
+          mode: "relative",
+          keyframes: [
+            {
+              time: start,
+              transform: {
+                position: offset,
+                mode: "relative",
+              },
+              easing: animation.easing ?? "ease-out-cubic",
+            },
+            {
+              time: end,
+              transform: {
+                position: [0, 0, 0],
+                mode: "relative",
+              },
+              easing: animation.easing ?? "ease-out-cubic",
+            },
+          ],
+        },
+      ];
+    }
 
     case "fade-out":
       return [
@@ -584,6 +649,29 @@ function compileAnimationToTracks(
           mode: "absolute",
         },
         {
+          kind: "keyframes",
+          objectId: targetId(animation.from),
+          mode: "relative",
+          keyframes: [
+            {
+              time: start,
+              transform: {
+                scale: [1, 1, 1],
+                mode: "relative",
+              },
+              easing: animation.easing ?? "smoothstep",
+            },
+            {
+              time: end,
+              transform: {
+                scale: [0.86, 0.86, 0.86],
+                mode: "relative",
+              },
+              easing: animation.easing ?? "smoothstep",
+            },
+          ],
+        },
+        {
           kind: "fade",
           objectId: targetId(animation.to),
           from: 0,
@@ -592,6 +680,29 @@ function compileAnimationToTracks(
           endTime: end,
           easing: animation.easing ?? "smoothstep",
           mode: "absolute",
+        },
+        {
+          kind: "keyframes",
+          objectId: targetId(animation.to),
+          mode: "relative",
+          keyframes: [
+            {
+              time: start,
+              transform: {
+                scale: [1.12, 1.12, 1.12],
+                mode: "relative",
+              },
+              easing: animation.easing ?? "smoothstep",
+            },
+            {
+              time: end,
+              transform: {
+                scale: [1, 1, 1],
+                mode: "relative",
+              },
+              easing: animation.easing ?? "smoothstep",
+            },
+          ],
         },
       ];
 
@@ -602,6 +713,13 @@ function compileAnimationToTracks(
 
 function targetId(target: SceneAnimationTarget): string {
   return typeof target === "string" ? target : target.id;
+}
+
+function dropOffset(direction: "top" | "bottom" | "left" | "right", distance: number): [number, number, number] {
+  if (direction === "bottom") return [0, -distance, 0];
+  if (direction === "left") return [-distance, 0, 0];
+  if (direction === "right") return [distance, 0, 0];
+  return [0, distance, 0];
 }
 
 function inferDuration(spec: SceneDslSpec): number {

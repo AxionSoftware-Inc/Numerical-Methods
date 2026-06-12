@@ -39,11 +39,16 @@ const OBJECT_COMMANDS = new Set([
   "marker",
   "arrow",
   "tangent",
+
+  "electric_field",
+"efield",
+"electricfield",
   ...listVideoLabPrimitiveKeywords(),
 ]);
 
 const ANIMATION_COMMANDS = new Set([
   "write",
+  "drop",
   "show",
   "reveal",
   "fade",
@@ -56,6 +61,7 @@ const ANIMATION_COMMANDS = new Set([
   "move",
   "scale",
   "rotate",
+  "transform",
   "wait",
 ]);
 
@@ -69,6 +75,7 @@ const KNOWN_COMMANDS = new Set([
 
 const TARGET_COMMANDS = new Set([
   "write",
+  "drop",
   "show",
   "reveal",
   "fade",
@@ -81,6 +88,7 @@ const TARGET_COMMANDS = new Set([
   "move",
   "scale",
   "rotate",
+  "transform",
 ]);
 
 const PARAMETER_TOKENS = new Set([

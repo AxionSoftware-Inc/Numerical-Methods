@@ -1,10 +1,11 @@
 import type { VideoProjectSpec } from "@methodslab/video-engine/core";
-import type { SceneCameraAnimation } from "@methodslab/scene-dsl/core";
+import type { SceneCameraAnimation, SceneCameraSpec } from "@methodslab/scene-dsl/core";
 import { getVideoLabPrimitive } from "./language/primitives";
 import { analyzeVideoLabCode } from "./language/intellisense";
 import {
   compileSceneToVideoProject,
   createMathScene,
+  dropIn,
   fadeIn,
   fadeOut,
   hide,
@@ -13,6 +14,7 @@ import {
   rotate,
   scaleTo,
   spin,
+  transform,
   wait,
   write,
 } from "@methodslab/scene-dsl/core";
@@ -68,13 +70,12 @@ subtitle "Riemann columns as a code-first video scene"
 formula f = "\\int_a^b\\int_c^d f(x,y)\\,dx\\,dy" at formula color main
 
 grid
-axes
 riemann columns count 7
 
 point peak at peak_pos label "max contribution"
 arrow mark from mark_from to peak_pos color red
 
-write title in 0.85s
+drop title from top in 0.85s
 write f in 0.9s
 show columns from 0.18 in 1.2s
 highlight peak in 0.75s
@@ -82,7 +83,7 @@ fade analysis in 0.8s
 spin columns y 0.72 turns in 2.5s
 wait 0.4s`;
 
-type CameraConfig = {
+type CameraConfig = SceneCameraSpec & {
   kind: "orbit";
   radius: number;
   height: number;
@@ -197,6 +198,7 @@ export function compileVideoLabCode(
       name: config.name,
       fps: config.fps,
       duration: config.duration,
+      camera: cameraSpecFromConfig(config.camera),
       cameraAnimation: config.cameraAnimation,
     });
 
@@ -266,27 +268,27 @@ function parseCommand(context: VideoLabContext, tokens: string[], lineNumber: nu
   }
 
   if (command === "title") {
-    const text = joinedFrom(tokens, 1) || "Untitled";
+    const text = textCommandContent(tokens, 1) || "Untitled";
 
     context.scene.text(text, {
       id: "title",
       objectId: "title",
-      position: parseNamedVec3(tokens, "at", context, [-1.45, 2.46, 1.9]),
+      position: parseNamedVec3(tokens, "at", context, [-1.35, 1.35, 0.2]),
       color: parseNamedColor(tokens, "color", context, "#f8fafc"),
-      scale: parseNamedNumber(tokens, "scale", context, 0.25),
+      scale: parseNamedNumber(tokens, "scale", context, 0.38),
     });
     return;
   }
 
   if (command === "subtitle") {
-    const text = joinedFrom(tokens, 1) || "";
+    const text = textCommandContent(tokens, 1) || "";
 
     context.scene.text(text, {
       id: "subtitle",
-      objectId: "title",
-      position: parseNamedVec3(tokens, "at", context, [-1.45, 2.12, 1.9]),
+      objectId: "subtitle",
+      position: parseNamedVec3(tokens, "at", context, [-1.35, 1.02, 0.2]),
       color: parseNamedColor(tokens, "color", context, "#b6c7d6"),
-      scale: parseNamedNumber(tokens, "scale", context, 0.115),
+      scale: parseNamedNumber(tokens, "scale", context, 0.17),
     });
     return;
   }
@@ -318,8 +320,8 @@ function parseCommand(context: VideoLabContext, tokens: string[], lineNumber: nu
     context.scene.axes({
       id: parseNamedString(tokens, "id", context, "axes"),
       objectId: parseNamedString(tokens, "object", context, "axes"),
-      origin: parseNamedVec3(tokens, "origin", context, [-1.55, -0.82, -1.35]),
-      size: parseNamedNumber(tokens, "size", context, 1.55),
+      origin: parseNamedVec3(tokens, "origin", context, [0, 0, 0]),
+      size: parseNamedNumber(tokens, "size", context, 1.45),
       yLabel: parseNamedString(tokens, "ylabel", context, "h"),
     });
     return;
@@ -364,6 +366,23 @@ function parseCommand(context: VideoLabContext, tokens: string[], lineNumber: nu
     if (!target) return pushWarning(context, lineNumber, "write target missing");
 
     context.scene.play(write(target, { duration: durationFromNaturalTokens(tokens, context, 0.85) }));
+    return;
+  }
+
+  if (command === "drop") {
+    const target = tokens[1];
+    if (!target) return pushWarning(context, lineNumber, "drop target missing");
+
+    const fromIndex = tokens.indexOf("from");
+    const direction = normalizeDropDirection(fromIndex >= 0 ? tokens[fromIndex + 1] : undefined);
+
+    context.scene.play(
+      dropIn(target, {
+        direction,
+        distance: parseNamedNumber(tokens, "distance", context, 0.55),
+        duration: durationFromNaturalTokens(tokens, context, 0.85),
+      }),
+    );
     return;
   }
 
@@ -454,6 +473,21 @@ function parseCommand(context: VideoLabContext, tokens: string[], lineNumber: nu
     return;
   }
 
+  if (command === "transform") {
+    const from = tokens[1];
+    const toIndex = tokens.indexOf("to");
+    const to = toIndex >= 0 ? tokens[toIndex + 1] : undefined;
+
+    if (!from || !to) return pushWarning(context, lineNumber, "transform needs source and target: transform title to eq in 1s");
+
+    context.scene.play(
+      transform(from, to, {
+        duration: durationFromNaturalTokens(tokens, context, 1),
+      }),
+    );
+    return;
+  }
+
   if (command === "wait") {
     context.scene.play(wait(resolveDuration(tokens[1], context, 0.4)));
     return;
@@ -484,6 +518,7 @@ function parseCameraCommand(context: VideoLabContext, tokens: string[], lineNumb
   context.config.camera.radius = parseNamedNumber(tokens, "radius", context, context.config.camera.radius);
   context.config.camera.height = parseNamedNumber(tokens, "height", context, context.config.camera.height);
   context.config.camera.turns = parseNamedNumber(tokens, "turns", context, context.config.camera.turns);
+  context.config.cameraAnimation = undefined;
 }
 
 function parseFormulaCommand(context: VideoLabContext, tokens: string[], lineNumber: number): void {
@@ -502,10 +537,32 @@ function parseFormulaCommand(context: VideoLabContext, tokens: string[], lineNum
   context.scene.tex(source, {
     id,
     objectId: id,
-    position: parseNamedVec3(tokens, "at", context, [-1.42, 1.82, 1.9]),
+    position: parseNamedVec3(tokens, "at", context, [-1.1, 0.62, 0.2]),
     color: parseNamedColor(tokens, "color", context, "#67e8f9"),
-    scale: parseNamedNumber(tokens, "scale", context, 0.14),
+    scale: parseNamedNumber(tokens, "scale", context, 0.22),
   });
+}
+
+function textCommandContent(tokens: string[], startIndex: number): string {
+  const atIndex = tokens.indexOf("at");
+  const colorIndex = tokens.indexOf("color");
+  const scaleIndex = tokens.indexOf("scale");
+  const stopIndexes = [atIndex, colorIndex, scaleIndex].filter((index) => index >= 0);
+  const endIndex = stopIndexes.length > 0 ? Math.min(...stopIndexes) : tokens.length;
+
+  return tokens.slice(startIndex, endIndex).join(" ");
+}
+
+function cameraSpecFromConfig(camera: CameraConfig): SceneCameraSpec {
+  return {
+    position: camera.position,
+    target: camera.target,
+    fov: camera.fov,
+    minDistance: camera.minDistance,
+    maxDistance: camera.maxDistance,
+    projection: camera.projection,
+    orthographicSize: camera.orthographicSize,
+  };
 }
 
 function parseTextCommand(context: VideoLabContext, tokens: string[], lineNumber: number): void {
@@ -524,9 +581,9 @@ function parseTextCommand(context: VideoLabContext, tokens: string[], lineNumber
   context.scene.text(text, {
     id,
     objectId: id,
-    position: parseNamedVec3(tokens, "at", context, [-1, 1.3, 1.2]),
+    position: parseNamedVec3(tokens, "at", context, [-1.25, -1.05, 0.2]),
     color: parseNamedColor(tokens, "color", context, "#f8fafc"),
-    scale: parseNamedNumber(tokens, "scale", context, 0.14),
+    scale: parseNamedNumber(tokens, "scale", context, 0.18),
   });
 }
 
@@ -806,6 +863,11 @@ function axisRotation(axis: "x" | "y" | "z", angle: number): VideoLabVec3 {
   return [0, angle, 0];
 }
 
+function normalizeDropDirection(value: string | undefined): "top" | "bottom" | "left" | "right" {
+  if (value === "bottom" || value === "left" || value === "right") return value;
+  return "top";
+}
+
 function pushWarning(context: VideoLabContext, lineNumber: number, message: string): void {
   context.warnings.push(`Line ${lineNumber}: ${message}`);
 }
@@ -817,9 +879,26 @@ function resolveCameraPreset(name: string): {
     fov?: number;
     minDistance?: number;
     maxDistance?: number;
+    projection?: "perspective" | "orthographic";
+    orthographicSize?: number;
   };
   cameraAnimation?: SceneCameraAnimation;
 } {
+  if (name === "2d" || name === "front") {
+    return {
+      camera: {
+        position: [0, 0, 5.2],
+        target: [0, 0, 0],
+        fov: 34,
+        projection: "orthographic",
+        orthographicSize: 4,
+        minDistance: 1.5,
+        maxDistance: 16,
+      },
+      cameraAnimation: undefined,
+    };
+  }
+
   if (name === "graph") {
     return {
       camera: {

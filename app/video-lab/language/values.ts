@@ -38,20 +38,20 @@ export const VIDEO_LAB_NAMED_POSITIONS: Record<string, VideoLabVec3> = {
   origin: [0, 0, 0],
   center: [0, 0, 0],
 
-  top: [0, 2.1, 1.8],
-  bottom: [0, -1.25, 1.4],
-  left: [-1.45, 0.2, 1.3],
-  right: [1.45, 0.2, 1.3],
+  top: [0, 1.65, 0.2],
+  bottom: [0, -1.55, 0.2],
+  left: [-1.65, 0.1, 0.2],
+  right: [1.65, 0.1, 0.2],
 
-  "top-left": [-1.45, 2.15, 1.8],
-  "top-right": [1.05, 2.15, 1.8],
-  "bottom-left": [-1.45, -1.15, 1.5],
-  "bottom-right": [1.05, -1.15, 1.5],
+  "top-left": [-1.65, 1.65, 0.2],
+  "top-right": [1.15, 1.65, 0.2],
+  "bottom-left": [-1.65, -1.55, 0.2],
+  "bottom-right": [1.15, -1.55, 0.2],
 
-  title: [-1.45, 2.46, 1.9],
-  subtitle: [-1.45, 2.12, 1.9],
-  formula: [-1.42, 1.82, 1.9],
-  note: [-1, 1.3, 1.2],
+  title: [-1.35, 1.35, 0.2],
+  subtitle: [-1.35, 1.02, 0.2],
+  formula: [-1.1, 0.62, 0.2],
+  note: [-1.25, -1.05, 0.2],
 
   grid: [0, -0.86, 0],
 };

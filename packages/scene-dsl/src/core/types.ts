@@ -203,6 +203,7 @@ export type SceneAnimationKind =
   | "fade-out"
   | "show"
   | "hide"
+  | "drop-in"
   | "indicate"
   | "move-to"
   | "scale-to"
@@ -249,6 +250,15 @@ export type SceneShowAnimation = SceneAnimationBase & {
 export type SceneHideAnimation = SceneAnimationBase & {
   kind: "hide";
   target: SceneAnimationTarget;
+};
+
+export type SceneDropDirection = "top" | "bottom" | "left" | "right";
+
+export type SceneDropInAnimation = SceneAnimationBase & {
+  kind: "drop-in";
+  target: SceneAnimationTarget;
+  direction?: SceneDropDirection;
+  distance?: number;
 };
 
 export type SceneIndicateAnimation = SceneAnimationBase & {
@@ -301,6 +311,7 @@ export type SceneAnimation =
   | SceneFadeOutAnimation
   | SceneShowAnimation
   | SceneHideAnimation
+  | SceneDropInAnimation
   | SceneIndicateAnimation
   | SceneMoveToAnimation
   | SceneScaleToAnimation
@@ -323,6 +334,8 @@ export type SceneCameraSpec = {
   fov?: number;
   minDistance?: number;
   maxDistance?: number;
+  projection?: "perspective" | "orthographic";
+  orthographicSize?: number;
 };
 
 export type SceneCameraAnimation =

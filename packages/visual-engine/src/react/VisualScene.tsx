@@ -33,7 +33,7 @@ export type VisualSceneProps = {
 type Runtime = {
   renderer: THREE.WebGLRenderer;
   scene: THREE.Scene;
-  camera: THREE.PerspectiveCamera;
+  camera: THREE.PerspectiveCamera | THREE.OrthographicCamera;
   controls: VisualViewportControls;
   content: THREE.Group;
   observer: ResizeObserver;
@@ -84,13 +84,7 @@ export function VisualScene({
     onCanvasReadyRef.current?.(renderer.domElement);
 
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(
-      spec.camera.fov,
-      1,
-      spec.camera.near ?? 0.01,
-      spec.camera.far ?? 1000,
-    );
-
+    const camera = createCamera(spec, 1);
     camera.position.set(...spec.camera.position);
 
     const controls = new VisualViewportControls({
@@ -186,10 +180,41 @@ export function VisualScene({
   return <div ref={mountRef} className={className} />;
 }
 
-function updateCameraProjection(camera: THREE.PerspectiveCamera, spec: VisualSceneSpec): void {
-  camera.fov = spec.camera.fov;
+function createCamera(
+  spec: VisualSceneSpec,
+  aspect: number,
+): THREE.PerspectiveCamera | THREE.OrthographicCamera {
+  if (spec.camera.projection === "orthographic") {
+    const size = spec.camera.orthographicSize ?? 3.8;
+    return new THREE.OrthographicCamera(
+      (-size * aspect) / 2,
+      (size * aspect) / 2,
+      size / 2,
+      -size / 2,
+      spec.camera.near ?? 0.01,
+      spec.camera.far ?? 1000,
+    );
+  }
+
+  return new THREE.PerspectiveCamera(
+    spec.camera.fov,
+    aspect,
+    spec.camera.near ?? 0.01,
+    spec.camera.far ?? 1000,
+  );
+}
+
+function updateCameraProjection(
+  camera: THREE.PerspectiveCamera | THREE.OrthographicCamera,
+  spec: VisualSceneSpec,
+): void {
   camera.near = spec.camera.near ?? 0.01;
   camera.far = spec.camera.far ?? 1000;
+
+  if (camera instanceof THREE.PerspectiveCamera) {
+    camera.fov = spec.camera.fov;
+  }
+
   camera.updateProjectionMatrix();
 }
 
@@ -233,7 +258,16 @@ function resize(runtime: Runtime): void {
   const height = mount?.clientHeight || 1;
 
   runtime.renderer.setSize(width, height, false);
-  runtime.camera.aspect = width / height;
+  const aspect = width / height;
+
+  if (runtime.camera instanceof THREE.PerspectiveCamera) {
+    runtime.camera.aspect = aspect;
+  } else {
+    const size = runtime.camera.top - runtime.camera.bottom;
+    runtime.camera.left = (-size * aspect) / 2;
+    runtime.camera.right = (size * aspect) / 2;
+  }
+
   runtime.camera.updateProjectionMatrix();
 }
 

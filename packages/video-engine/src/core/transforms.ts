@@ -58,6 +58,9 @@ export function sampleObjectTrack(
 
     case "fade":
       return sampleFadeTrack(track, time);
+
+    case "reveal":
+      return sampleRevealTrack(track, time);
   }
 }
 
@@ -105,6 +108,32 @@ function sampleFadeTrack(
 
   return {
     opacity: track.from + (track.to - track.from) * progress,
+    mode: track.mode ?? "absolute",
+  };
+}
+
+function sampleRevealTrack(
+  track: Extract<ObjectTrackSpec, { kind: "reveal" }>,
+  time: number,
+): VisualTransformSpec | null {
+  if (time < track.startTime) {
+    return {
+      revealProgress: track.from,
+      mode: track.mode ?? "absolute",
+    };
+  }
+
+  if (time > track.endTime) {
+    return {
+      revealProgress: track.to,
+      mode: track.mode ?? "absolute",
+    };
+  }
+
+  const progress = ease(normalizeTime(time, track.startTime, track.endTime), track.easing ?? "linear");
+
+  return {
+    revealProgress: track.from + (track.to - track.from) * progress,
     mode: track.mode ?? "absolute",
   };
 }

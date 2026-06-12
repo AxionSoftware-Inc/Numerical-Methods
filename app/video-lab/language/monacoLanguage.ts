@@ -26,6 +26,7 @@ const KEYWORDS = [
     "height",
     "turns",
     "write",
+    "drop",
     "show",
     "reveal",
     "normal",
@@ -40,6 +41,7 @@ const KEYWORDS = [
     "move",
     "scale",
     "rotate",
+    "transform",
     "wait",
     "from",
     "to",
@@ -55,6 +57,14 @@ const KEYWORDS = [
     "origin",
     "object",
     "tangent",
+
+    "electric_field",
+    "efield",
+    "electricfield",
+    "charges",
+    "volume",
+    "plane",
+    "layers",
     ...listVideoLabPrimitiveKeywords(),
 ];
 
@@ -114,10 +124,10 @@ const COMPLETIONS: Array<{
             detail: "Create normal line",
         },
         {
-  label: "secant",
-  insertText: "secant ${1:sc} = ${2:sin(x)} from ${3:0.5} to ${4:1.5} length ${5:3} color ${6:green}",
-  detail: "Create secant line",
-},
+            label: "secant",
+            insertText: "secant ${1:sc} = ${2:sin(x)} from ${3:0.5} to ${4:1.5} length ${5:3} color ${6:green}",
+            detail: "Create secant line",
+        },
         {
             label: "duration",
             insertText: "duration = ${1:8}",
@@ -137,6 +147,11 @@ const COMPLETIONS: Array<{
             label: "camera preset surface",
             insertText: "camera preset ${1:surface}",
             detail: "Use a camera preset",
+        },
+        {
+            label: "camera preset 2d",
+            insertText: "camera preset 2d",
+            detail: "Use a flat front camera for math videos",
         },
         {
             label: "title",
@@ -214,9 +229,19 @@ const COMPLETIONS: Array<{
             detail: "Write/reveal target",
         },
         {
+            label: "drop",
+            insertText: "drop ${1:target} from ${2:top} in ${3:0.8s}",
+            detail: "Drop target into view",
+        },
+        {
             label: "show",
             insertText: "show ${1:target} from ${2:0} in ${3:0.8s}",
             detail: "Fade in target",
+        },
+        {
+            label: "transform",
+            insertText: "transform ${1:from} to ${2:to} in ${3:1s}",
+            detail: "Transform one target into another",
         },
         {
             label: "fadeout",
@@ -262,6 +287,18 @@ const COMPLETIONS: Array<{
             label: "wait",
             insertText: "wait ${1:0.4s}",
             detail: "Pause timeline",
+        },
+
+
+        {
+            label: "electric_field",
+            insertText: "electric_field ${1:E} charges [[${2:-1},${3:0},${4:1}],[${5:1},${6:0},${7:-1}]] range ${8:3} step ${9:0.45} color ${10:cyan}",
+            detail: "Create electric field from point charges",
+        },
+        {
+            label: "electric_field volume",
+            insertText: "electric_field ${1:E} charges [[${2:-1},${3:0},${4:0},${5:1}],[${6:1},${7:0},${8:0},${9:-1}]] range ${10:3} mode volume layers ${11:5} step ${12:0.65} color ${13:cyan}",
+            detail: "Create 3D volume electric field",
         },
     ];
 

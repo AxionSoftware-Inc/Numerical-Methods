@@ -58,6 +58,7 @@ export type VisualTransformSpec = {
    * Optional opacity multiplier from 0..1.
    */
   opacity?: number;
+  revealProgress?: number;
 
   /**
    * Used by animation/video layers.
@@ -73,6 +74,8 @@ export type VisualCameraSpec = {
   fov: number;
   minDistance: number;
   maxDistance: number;
+  projection?: "perspective" | "orthographic";
+  orthographicSize?: number;
 
   /**
    * Optional clipping planes.

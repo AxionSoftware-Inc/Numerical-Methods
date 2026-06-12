@@ -38,6 +38,10 @@ const OBJECT_COMMANDS = new Set([
   "marker",
   "arrow",
   "tangent",
+
+  "electric_field",
+"efield",
+"electricfield",
   ...listVideoLabPrimitiveKeywords(),
 ]);
 

@@ -25,13 +25,12 @@ subtitle "Riemann columns as a code-first video scene"
 formula f = "\\int_a^b\\int_c^d f(x,y)\\,dx\\,dy" at formula color main
 
 grid
-axes
 riemann columns count 7
 
 point peak at peak_pos label "max contribution"
 arrow mark from mark_from to peak_pos color red
 
-write title in 0.85s
+drop title from top in 0.85s
 write f in 0.9s
 show columns from 0.18 in 1.2s
 highlight peak in 0.75s
@@ -399,7 +398,7 @@ highlight bowl in 0.8s
 wait 0.6s`,
 },
 {
-  id: "animated-wave-surface",
+  id: "animated-wave-surface-classic",
   title: "Animated Wave Surface",
   description: "Time-aware procedural wave mesh using t in the expression.",
   code: `scene "Animated Wave Surface"

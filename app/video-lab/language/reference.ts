@@ -39,6 +39,7 @@ export const VIDEO_LAB_REFERENCE: VideoLabReferenceItem[] = [
     category: "setup",
     description: "Ready-made camera setups for common scientific scenes.",
     examples: [
+      "camera preset 2d",
       "camera preset surface",
       "camera preset graph",
       "camera preset field",

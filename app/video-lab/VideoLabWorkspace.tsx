@@ -1,7 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  Download,
+  Image as ImageIcon,
+  Pause,
+  Play,
+  RotateCcw,
+  Terminal,
+  Video,
+} from "lucide-react";
 import { VisualScene } from "@methodslab/visual-engine/react";
+import type { VisualSceneSpec } from "@methodslab/visual-engine/core";
 import { renderFrameSpec } from "@methodslab/video-engine/core";
 import {
   compileVideoLabCode,
@@ -10,11 +23,21 @@ import {
 import { VideoLabEditor } from "./VideoLabEditor";
 import { VIDEO_LAB_EXAMPLES } from "./videoLabExamples";
 
+type ExportQuality = "1080p" | "4k";
+type ViewMode = "2d" | "3d";
+
 export function VideoLabWorkspace() {
+  const workspaceRef = useRef<HTMLElement | null>(null);
+  const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [code, setCode] = useState(DEFAULT_VIDEO_LAB_CODE);
   const [time, setTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [selectedExampleId, setSelectedExampleId] = useState("volume-integral");
+  const [isStatusOpen, setIsStatusOpen] = useState(false);
+  const [editorWidth, setEditorWidth] = useState(540);
+  const [exportQuality, setExportQuality] = useState<ExportQuality>("1080p");
+  const [isExporting, setIsExporting] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>(() => initialViewModeForCode(DEFAULT_VIDEO_LAB_CODE));
 
   const baseCompileResult = useMemo(() => compileVideoLabCode(code), [code]);
 
@@ -32,6 +55,10 @@ export function VideoLabWorkspace() {
   const frame = useMemo(() => {
     return renderFrameSpec(project, safeTime);
   }, [project, safeTime]);
+
+  const previewScene = useMemo(() => {
+    return viewMode === "2d" ? withTwoDimensionalCamera(frame.scene) : withBlackViewport(frame.scene);
+  }, [frame.scene, viewMode]);
 
   useEffect(() => {
     if (!isPlaying) return;
@@ -69,6 +96,8 @@ export function VideoLabWorkspace() {
     setSelectedExampleId(exampleId);
     setTime(0);
     setIsPlaying(false);
+    setIsStatusOpen(false);
+    setViewMode(initialViewModeForCode(nextCode));
   }
 
   function restart() {
@@ -86,90 +115,170 @@ export function VideoLabWorkspace() {
     setIsPlaying((value) => !value);
   }
 
+  function startResize(startX: number) {
+    const workspace = workspaceRef.current;
+    if (!workspace) return;
+
+    const bounds = workspace.getBoundingClientRect();
+
+    function handleMove(event: PointerEvent) {
+      const nextWidth = event.clientX - bounds.left;
+      const maxWidth = Math.max(420, bounds.width - 420);
+
+      setEditorWidth(Math.max(360, Math.min(maxWidth, nextWidth)));
+    }
+
+    function handleUp() {
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+    }
+
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp);
+
+    setEditorWidth(Math.max(360, Math.min(bounds.width - 420, startX - bounds.left)));
+  }
+
+  async function exportPng() {
+    const canvas = previewCanvasRef.current;
+    if (!canvas || isExporting) return;
+
+    setIsExporting(true);
+
+    try {
+      await nextAnimationFrame();
+      const output = drawCanvasToExportSize(canvas, exportQuality);
+      const blob = await canvasToBlob(output, "image/png");
+      downloadBlob(blob, `${safeFileName(project.name)}-${formatTimeForFile(safeTime)}.png`);
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
+  async function exportVideo() {
+    const sourceCanvas = previewCanvasRef.current;
+    if (!sourceCanvas || isExporting) return;
+
+    const mimeType = bestVideoMimeType();
+
+    if (!mimeType) {
+      window.alert("Video export is not supported by this browser.");
+      return;
+    }
+
+    setIsExporting(true);
+    setIsPlaying(false);
+
+    const previousTime = safeTime;
+    const fps = project.timeline.fps;
+    const frameCount = Math.max(1, Math.ceil(duration * fps));
+    const outputCanvas = createExportCanvas(exportQuality);
+    const context = outputCanvas.getContext("2d");
+
+    if (!context) {
+      setIsExporting(false);
+      return;
+    }
+
+    const stream = outputCanvas.captureStream(fps);
+    const recorder = new MediaRecorder(stream, {
+      mimeType,
+      videoBitsPerSecond: exportQuality === "4k" ? 28_000_000 : 12_000_000,
+    });
+    const chunks: Blob[] = [];
+
+    recorder.addEventListener("dataavailable", (event) => {
+      if (event.data.size > 0) chunks.push(event.data);
+    });
+
+    const finished = new Promise<Blob>((resolve) => {
+      recorder.addEventListener("stop", () => {
+        resolve(new Blob(chunks, { type: mimeType }));
+      });
+    });
+
+    try {
+      recorder.start();
+
+      for (let frameIndex = 0; frameIndex <= frameCount; frameIndex += 1) {
+        const nextTime = Math.min(duration, frameIndex / fps);
+        setTime(nextTime);
+        await nextAnimationFrame();
+        await nextAnimationFrame();
+        drawCanvasIntoContext(sourceCanvas, context, outputCanvas.width, outputCanvas.height);
+        await wait(1000 / fps);
+      }
+
+      recorder.stop();
+      const blob = await finished;
+      downloadBlob(blob, `${safeFileName(project.name)}-${exportQuality}.webm`);
+    } finally {
+      stream.getTracks().forEach((track) => track.stop());
+      setTime(previousTime);
+      setIsExporting(false);
+    }
+  }
+
   return (
-    <section className="grid h-[calc(100vh-48px)] max-h-[calc(100vh-48px)] grid-cols-[520px_1fr] overflow-hidden rounded-[2rem] border border-white/10 bg-[#050b0f] text-white shadow-2xl">
-      <aside className="flex min-h-0 flex-col border-r border-white/10 bg-[#071014]">
-        <div className="shrink-0 border-b border-white/10 p-5">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-xs font-medium uppercase tracking-[0.28em] text-cyan-300">
-                MethodsLab Video
-              </p>
-
-              <h1 className="mt-2 text-xl font-semibold tracking-tight">
-                Scientific Scene Editor
-              </h1>
-
-              <p className="mt-2 max-w-[390px] text-sm leading-6 text-slate-400">
-                Natural mini-language orqali math/physics sahna yoziladi,
-                preview esa real vaqt rejimida yangilanadi.
-              </p>
-            </div>
-
-            <StatusPill error={error} warnings={warnings} />
-          </div>
+    <section
+      className="grid h-screen overflow-hidden bg-[#02060a] text-white"
+      ref={workspaceRef}
+      style={{ gridTemplateColumns: `${editorWidth}px 6px minmax(0, 1fr)` }}
+    >
+      <aside className="relative flex min-h-0 flex-col bg-[#02060a]">
+        <div className="min-h-0 flex-1">
+          <VideoLabEditor
+            value={code}
+            warnings={warnings}
+            onChange={(nextCode) => {
+              setCode(nextCode);
+              setTime(0);
+              setIsPlaying(false);
+              setSelectedExampleId("custom");
+            }}
+          />
         </div>
 
-        <ExamplesStrip
-          selectedExampleId={selectedExampleId}
-          onSelect={(exampleId, nextCode) => loadCode(nextCode, exampleId)}
-          onReset={() => loadCode(DEFAULT_VIDEO_LAB_CODE, "volume-integral")}
-        />
-
-        <div className="flex min-h-0 flex-1 flex-col p-4">
-          <div className="mb-2 flex shrink-0 items-center justify-between gap-3">
-            <label className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
-              Scene code
-            </label>
-
-            <div className="flex items-center gap-2 text-xs text-slate-500">
-              <span>{code.split(/\r?\n/).length} lines</span>
-              <span>•</span>
-              <span>{project.timeline.objects?.length ?? 0} tracks</span>
-            </div>
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-white/10 bg-black/30">
-            <VideoLabEditor
-              value={code}
-              warnings={warnings}
-              onChange={(nextCode) => {
-                setCode(nextCode);
-                setTime(0);
-                setIsPlaying(false);
-                setSelectedExampleId("custom");
-              }}
-            />
-          </div>
-        </div>
-
-        <EditorFooter
+        <StatusConsole
+          code={code}
           error={error}
+          fps={project.timeline.fps}
+          isOpen={isStatusOpen}
+          selectedExampleId={selectedExampleId}
+          tracks={project.timeline.objects?.length ?? 0}
           warnings={warnings}
-          onRestart={restart}
+          onClose={() => setIsStatusOpen(false)}
           onReset={() => loadCode(DEFAULT_VIDEO_LAB_CODE, "volume-integral")}
+          onSelectExample={(exampleId, nextCode) => loadCode(nextCode, exampleId)}
+          onToggle={() => setIsStatusOpen((value) => !value)}
         />
       </aside>
 
-      <main className="relative min-h-0 bg-[radial-gradient(circle_at_50%_12%,rgba(34,211,238,0.08),transparent_42%),linear-gradient(180deg,#061216,#020609)]">
-        <VisualScene
-          cameraMode="follow-spec"
-          cameraResetKey={`${project.id}:${frame.frame}`}
-          spec={frame.scene}
-          className="absolute inset-0"
-        />
+      <button
+        aria-label="Resize panels"
+        className="cursor-col-resize border-x border-white/10 bg-white/[0.025] transition hover:bg-cyan-300/10"
+        onPointerDown={(event) => {
+          event.currentTarget.setPointerCapture(event.pointerId);
+          startResize(event.clientX);
+        }}
+        type="button"
+      />
 
-        <PreviewHeader
-          projectName={project.name}
-          fps={project.timeline.fps}
-          time={safeTime}
-          duration={duration}
+      <main className="relative min-h-0 overflow-hidden bg-black">
+        <VisualScene
+          key={`${project.id}:${viewMode}`}
+          cameraMode="follow-spec"
+          cameraResetKey={`${project.id}:${frame.frame}:${viewMode}`}
+          spec={previewScene}
+          className="absolute inset-0"
+          onCanvasReady={(canvas) => {
+            previewCanvasRef.current = canvas;
+          }}
         />
 
         {error ? (
-          <div className="absolute left-6 top-6 max-w-[520px] rounded-2xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-100 backdrop-blur">
-            <p className="font-semibold">Compile error</p>
-            <p className="mt-1 text-red-100/80">{error}</p>
+          <div className="absolute left-3 top-3 max-w-[460px] border border-red-400/20 bg-red-950/70 px-3 py-2 text-xs text-red-100 shadow-2xl backdrop-blur">
+            <p className="line-clamp-2">{error}</p>
           </div>
         ) : null}
 
@@ -178,197 +287,22 @@ export function VideoLabWorkspace() {
           fps={project.timeline.fps}
           isPlaying={isPlaying}
           time={safeTime}
+          viewMode={viewMode}
           onChange={(value) => {
             setTime(value);
             setIsPlaying(false);
           }}
           onRestart={restart}
           onTogglePlay={togglePlay}
+          exportQuality={exportQuality}
+          isExporting={isExporting}
+          onExportPng={exportPng}
+          onExportVideo={exportVideo}
+          onQualityChange={setExportQuality}
+          onViewModeChange={setViewMode}
         />
       </main>
     </section>
-  );
-}
-
-function ExamplesStrip({
-  selectedExampleId,
-  onSelect,
-  onReset,
-}: {
-  selectedExampleId: string;
-  onSelect: (exampleId: string, code: string) => void;
-  onReset: () => void;
-}) {
-  return (
-    <div className="shrink-0 border-b border-white/10 p-4">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
-          Examples
-        </p>
-
-        <button
-          className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-slate-300 transition hover:border-cyan-300/30 hover:bg-cyan-300/10 hover:text-cyan-100"
-          onClick={onReset}
-          type="button"
-        >
-          Reset
-        </button>
-      </div>
-
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {VIDEO_LAB_EXAMPLES.map((example) => {
-          const active = selectedExampleId === example.id;
-
-          return (
-            <button
-              className={
-                active
-                  ? "min-w-[150px] rounded-xl border border-cyan-300/30 bg-cyan-300/10 px-3 py-2 text-left text-cyan-100"
-                  : "min-w-[150px] rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-left text-slate-300 transition hover:border-cyan-300/25 hover:bg-cyan-300/[0.06] hover:text-cyan-100"
-              }
-              key={example.id}
-              onClick={() => onSelect(example.id, example.code)}
-              type="button"
-            >
-              <p className="text-sm font-medium">{example.title}</p>
-              <p className="mt-1 line-clamp-2 text-xs leading-4 text-slate-500">
-                {example.description}
-              </p>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function StatusPill({
-  error,
-  warnings,
-}: {
-  error: string | null;
-  warnings: string[];
-}) {
-  if (error) {
-    return (
-      <span className="rounded-full border border-red-400/20 bg-red-500/10 px-3 py-1.5 text-xs text-red-100">
-        Error
-      </span>
-    );
-  }
-
-  if (warnings.length > 0) {
-    return (
-      <span className="rounded-full border border-yellow-300/20 bg-yellow-300/10 px-3 py-1.5 text-xs text-yellow-100">
-        {warnings.length} warning
-      </span>
-    );
-  }
-
-  return (
-    <span className="rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1.5 text-xs text-emerald-100">
-      Ready
-    </span>
-  );
-}
-
-function EditorFooter({
-  error,
-  warnings,
-  onRestart,
-  onReset,
-}: {
-  error: string | null;
-  warnings: string[];
-  onRestart: () => void;
-  onReset: () => void;
-}) {
-  return (
-    <div className="shrink-0 border-t border-white/10 p-4">
-      <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-        {error ? (
-          <div className="text-sm text-red-100">
-            <p className="font-medium">Compile failed</p>
-            <p className="mt-1 line-clamp-2 text-xs leading-5 text-red-100/75">
-              {error}
-            </p>
-          </div>
-        ) : warnings.length > 0 ? (
-          <div className="text-sm text-yellow-100">
-            <p className="font-medium">Warnings</p>
-            <ul className="mt-1 space-y-1 text-xs leading-5 text-yellow-100/75">
-              {warnings.slice(0, 2).map((warning) => (
-                <li className="line-clamp-1" key={warning}>
-                  {warning}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : (
-          <div className="text-sm text-emerald-100">
-            <p className="font-medium">Compiled successfully</p>
-            <p className="mt-1 text-xs text-emerald-100/70">
-              Scene pipeline is ready.
-            </p>
-          </div>
-        )}
-      </div>
-
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <button
-          className="rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm transition hover:border-cyan-300/30 hover:bg-cyan-300/10"
-          onClick={onReset}
-          type="button"
-        >
-          Reset code
-        </button>
-
-        <button
-          className="rounded-xl border border-cyan-300/30 bg-cyan-300/10 px-3 py-2 text-sm text-cyan-100 transition hover:bg-cyan-300/15"
-          onClick={onRestart}
-          type="button"
-        >
-          Restart
-        </button>
-      </div>
-
-      <details className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-slate-400">
-        <summary className="cursor-pointer text-slate-300">
-          Quick syntax
-        </summary>
-
-        <div className="mt-2 space-y-1 font-mono leading-5 text-cyan-100/90">
-          <p>formula f = &quot;x^2&quot; at formula color cyan</p>
-          <p>box cube at center size 1 color sky</p>
-          <p>move cube up 0.4 in 1s</p>
-          <p>rotate cube y 180deg in 1s</p>
-        </div>
-      </details>
-    </div>
-  );
-}
-
-function PreviewHeader({
-  projectName,
-  time,
-  duration,
-  fps,
-}: {
-  projectName: string;
-  time: number;
-  duration: number;
-  fps: number;
-}) {
-  return (
-    <div className="pointer-events-none absolute right-6 top-6 rounded-2xl border border-white/10 bg-black/25 px-4 py-3 backdrop-blur">
-      <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
-        Preview
-      </p>
-      <p className="mt-1 text-sm text-cyan-100">{projectName}</p>
-      <p className="mt-1 font-mono text-xs text-slate-500">
-        {time.toFixed(2)}s / {duration.toFixed(2)}s · {fps}fps
-      </p>
-    </div>
   );
 }
 
@@ -377,7 +311,14 @@ function TransportBar({
   duration,
   fps,
   isPlaying,
+  exportQuality,
+  isExporting,
+  viewMode,
   onChange,
+  onExportPng,
+  onExportVideo,
+  onQualityChange,
+  onViewModeChange,
   onRestart,
   onTogglePlay,
 }: {
@@ -385,36 +326,56 @@ function TransportBar({
   duration: number;
   fps: number;
   isPlaying: boolean;
+  exportQuality: ExportQuality;
+  isExporting: boolean;
+  viewMode: ViewMode;
   onChange: (value: number) => void;
+  onExportPng: () => void;
+  onExportVideo: () => void;
+  onQualityChange: (quality: ExportQuality) => void;
+  onViewModeChange: (mode: ViewMode) => void;
   onRestart: () => void;
   onTogglePlay: () => void;
 }) {
+  const progress = duration <= 0 ? 0 : Math.min(1, Math.max(0, time / duration));
+
   return (
-    <div className="absolute inset-x-6 bottom-6 rounded-2xl border border-white/10 bg-black/35 p-4 backdrop-blur">
-      <div className="flex items-center gap-3">
+    <div className="absolute left-3 top-3 w-[min(520px,calc(100%-24px))] border border-white/[0.06] bg-black/[0.12] px-2 py-1.5 shadow-2xl backdrop-blur-md">
+      <div className="flex items-center gap-2">
         <button
           className={
             isPlaying
-              ? "rounded-xl border border-yellow-300/30 bg-yellow-300/10 px-5 py-2 text-sm text-yellow-100 transition hover:bg-yellow-300/15"
-              : "rounded-xl border border-cyan-300/30 bg-cyan-300/10 px-5 py-2 text-sm text-cyan-100 transition hover:bg-cyan-300/15"
+              ? "grid h-7 w-7 place-items-center border border-white/[0.08] bg-white/[0.035] text-yellow-100/85 transition hover:bg-white/[0.08]"
+              : "grid h-7 w-7 place-items-center border border-white/[0.08] bg-white/[0.035] text-cyan-100/85 transition hover:bg-white/[0.08]"
           }
+          aria-label={isPlaying ? "Pause" : "Play"}
           onClick={onTogglePlay}
           type="button"
         >
-          {isPlaying ? "Pause" : "Play"}
+          {isPlaying ? <Pause size={13} /> : <Play size={13} />}
         </button>
 
         <button
-          className="rounded-xl border border-white/10 bg-white/10 px-4 py-2 text-sm text-slate-100 transition hover:border-cyan-300/30 hover:bg-cyan-300/10"
+          aria-label="Restart"
+          className="grid h-7 w-7 place-items-center border border-white/[0.08] bg-white/[0.025] text-slate-200/75 transition hover:bg-white/[0.08]"
           onClick={onRestart}
           type="button"
         >
-          Restart
+          <RotateCcw size={12} />
         </button>
 
-        <div className="min-w-0 flex-1">
+        <div className="relative h-7 min-w-0 flex-1">
+          <div className="absolute left-0 right-0 top-1/2 h-px -translate-y-1/2 bg-white/10" />
+          <div
+            className="absolute left-0 top-1/2 h-px -translate-y-1/2 bg-cyan-200/70"
+            style={{ width: `${progress * 100}%` }}
+          />
+          <div
+            className="absolute top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 border border-cyan-100/60 bg-cyan-100/70"
+            style={{ left: `${progress * 100}%` }}
+          />
           <input
-            className="w-full accent-cyan-300"
+            className="absolute inset-0 h-7 w-full cursor-pointer appearance-none bg-transparent opacity-0"
             max={duration}
             min={0}
             step={1 / fps}
@@ -424,10 +385,318 @@ function TransportBar({
           />
         </div>
 
-        <p className="w-[130px] text-right font-mono text-xs text-cyan-100">
+        <p className="w-[88px] text-right font-mono text-[10px] text-cyan-100/65">
           {time.toFixed(2)} / {duration.toFixed(2)}
         </p>
+
+        <button
+          aria-label="Toggle 2D or 3D view"
+          className="h-7 border border-white/[0.08] bg-white/[0.025] px-2 font-mono text-[10px] text-slate-200/75 transition hover:bg-white/[0.08]"
+          onClick={() => onViewModeChange(viewMode === "2d" ? "3d" : "2d")}
+          type="button"
+        >
+          {viewMode.toUpperCase()}
+        </button>
+
+        <select
+          aria-label="Export quality"
+          className="h-7 border border-white/[0.08] bg-white/[0.025] px-1.5 font-mono text-[10px] text-slate-200/75 outline-none transition hover:bg-white/[0.08]"
+          disabled={isExporting}
+          value={exportQuality}
+          onChange={(event) => onQualityChange(event.target.value as ExportQuality)}
+        >
+          <option value="1080p">FHD</option>
+          <option value="4k">4K</option>
+        </select>
+
+        <button
+          aria-label="Export PNG"
+          className="grid h-7 w-7 place-items-center border border-white/[0.08] bg-white/[0.025] text-slate-200/75 transition hover:bg-white/[0.08] disabled:cursor-wait disabled:opacity-40"
+          disabled={isExporting}
+          onClick={onExportPng}
+          type="button"
+        >
+          <ImageIcon size={12} />
+        </button>
+
+        <button
+          aria-label="Export video"
+          className="grid h-7 w-7 place-items-center border border-white/[0.08] bg-white/[0.025] text-slate-200/75 transition hover:bg-white/[0.08] disabled:cursor-wait disabled:opacity-40"
+          disabled={isExporting}
+          onClick={onExportVideo}
+          type="button"
+        >
+          {isExporting ? <Download size={12} /> : <Video size={12} />}
+        </button>
       </div>
     </div>
   );
+}
+
+function StatusConsole({
+  code,
+  error,
+  fps,
+  isOpen,
+  selectedExampleId,
+  tracks,
+  warnings,
+  onClose,
+  onReset,
+  onSelectExample,
+  onToggle,
+}: {
+  code: string;
+  error: string | null;
+  fps: number;
+  isOpen: boolean;
+  selectedExampleId: string;
+  tracks: number;
+  warnings: string[];
+  onClose: () => void;
+  onReset: () => void;
+  onSelectExample: (exampleId: string, code: string) => void;
+  onToggle: () => void;
+}) {
+  const stateTone = error
+    ? "text-red-200"
+    : warnings.length > 0
+      ? "text-yellow-100"
+      : "text-emerald-200";
+
+  return (
+    <div className="relative shrink-0 border-t border-white/10 bg-[#05090d]">
+      {isOpen ? (
+        <div className="absolute inset-x-0 bottom-full z-50 max-h-[44vh] overflow-auto border-t border-white/10 bg-[#05090d]/95 p-3 font-mono text-xs text-slate-300 shadow-2xl backdrop-blur-xl">
+          <div className="mb-3 flex items-center justify-between">
+            <span className="text-slate-500">status</span>
+            <button
+              aria-label="Close status"
+              className="text-slate-500 transition hover:text-slate-200"
+              onClick={onClose}
+              type="button"
+            >
+              <ChevronDown size={16} />
+            </button>
+          </div>
+
+          <div className="space-y-1">
+            {error ? <p className="text-red-200">error: {error}</p> : null}
+            {warnings.length > 0
+              ? warnings.map((warning) => (
+                  <p className="text-yellow-100" key={warning}>
+                    warning: {warning}
+                  </p>
+                ))
+              : null}
+            {!error && warnings.length === 0 ? (
+              <p className="text-emerald-200">compiled successfully</p>
+            ) : null}
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            {VIDEO_LAB_EXAMPLES.map((example) => (
+              <button
+                className={
+                  selectedExampleId === example.id
+                    ? "border border-cyan-300/30 bg-cyan-300/10 px-2 py-1.5 text-left text-cyan-100"
+                    : "border border-white/10 bg-white/[0.03] px-2 py-1.5 text-left text-slate-300 transition hover:border-cyan-300/25 hover:bg-cyan-300/[0.06]"
+                }
+                key={example.id}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onSelectExample(example.id, example.code);
+                }}
+                type="button"
+              >
+                {example.title}
+              </button>
+            ))}
+          </div>
+
+          <button
+            className="mt-2 border border-white/10 bg-white/[0.03] px-2 py-1.5 text-slate-300 transition hover:border-cyan-300/25 hover:bg-cyan-300/[0.06]"
+            onClick={(event) => {
+              event.stopPropagation();
+              onReset();
+            }}
+            type="button"
+          >
+            reset default
+          </button>
+        </div>
+      ) : null}
+
+      <button
+        className="flex h-9 w-full items-center justify-between gap-3 px-3 font-mono text-[11px] text-slate-400 transition hover:bg-white/[0.03]"
+        onClick={onToggle}
+        type="button"
+      >
+        <span className="flex items-center gap-2">
+          <Terminal size={13} />
+          <span className={stateTone}>
+            {error ? (
+              <AlertTriangle size={13} />
+            ) : warnings.length > 0 ? (
+              <AlertTriangle size={13} />
+            ) : (
+              <CheckCircle2 size={13} />
+            )}
+          </span>
+          <span>{error ? "error" : warnings.length ? `${warnings.length} warnings` : "ready"}</span>
+        </span>
+
+        <span className="flex items-center gap-3 text-slate-500">
+          <span>{code.split(/\r?\n/).length} lines</span>
+          <span>{tracks} tracks</span>
+          <span>{fps} fps</span>
+        </span>
+      </button>
+    </div>
+  );
+}
+
+function withBlackViewport(scene: VisualSceneSpec): VisualSceneSpec {
+  return {
+    ...scene,
+    style: {
+      ...scene.style,
+      background: "#000000",
+      fogNear: 999,
+      fogFar: 1000,
+    },
+  };
+}
+
+function withTwoDimensionalCamera(scene: VisualSceneSpec): VisualSceneSpec {
+  return {
+    ...withBlackViewport(scene),
+    camera: {
+      ...scene.camera,
+      position: [0, 0.865, 5.2],
+      target: [0, 0.865, 0],
+      fov: 34,
+      projection: "orthographic",
+      orthographicSize: 3.45,
+      minDistance: 1.5,
+      maxDistance: 16,
+      near: 0.01,
+      far: 1000,
+    },
+  };
+}
+
+function initialViewModeForCode(code: string): ViewMode {
+  return /\bcamera\s+preset\s+(2d|front)\b/.test(code) ? "2d" : "3d";
+}
+
+function exportSize(quality: ExportQuality): { width: number; height: number } {
+  if (quality === "4k") {
+    return { width: 3840, height: 2160 };
+  }
+
+  return { width: 1920, height: 1080 };
+}
+
+function createExportCanvas(quality: ExportQuality): HTMLCanvasElement {
+  const size = exportSize(quality);
+  const canvas = document.createElement("canvas");
+
+  canvas.width = size.width;
+  canvas.height = size.height;
+
+  return canvas;
+}
+
+function drawCanvasToExportSize(
+  sourceCanvas: HTMLCanvasElement,
+  quality: ExportQuality,
+): HTMLCanvasElement {
+  const outputCanvas = createExportCanvas(quality);
+  const context = outputCanvas.getContext("2d");
+
+  if (context) {
+    drawCanvasIntoContext(sourceCanvas, context, outputCanvas.width, outputCanvas.height);
+  }
+
+  return outputCanvas;
+}
+
+function drawCanvasIntoContext(
+  sourceCanvas: HTMLCanvasElement,
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+): void {
+  context.fillStyle = "#02060a";
+  context.fillRect(0, 0, width, height);
+
+  const sourceAspect = sourceCanvas.width / Math.max(1, sourceCanvas.height);
+  const targetAspect = width / height;
+  const drawWidth = sourceAspect > targetAspect ? width : height * sourceAspect;
+  const drawHeight = sourceAspect > targetAspect ? width / sourceAspect : height;
+  const x = (width - drawWidth) / 2;
+  const y = (height - drawHeight) / 2;
+
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  context.drawImage(sourceCanvas, x, y, drawWidth, drawHeight);
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, type: string): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) {
+        resolve(blob);
+      } else {
+        reject(new Error("Could not export canvas."));
+      }
+    }, type);
+  });
+}
+
+function bestVideoMimeType(): string | null {
+  const options = [
+    "video/webm;codecs=vp9",
+    "video/webm;codecs=vp8",
+    "video/webm",
+  ];
+
+  return options.find((type) => MediaRecorder.isTypeSupported(type)) ?? null;
+}
+
+function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function safeFileName(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "methodslab-scene";
+}
+
+function formatTimeForFile(time: number): string {
+  return `${time.toFixed(2).replace(".", "-")}s`;
+}
+
+function nextAnimationFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => resolve());
+  });
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
 }

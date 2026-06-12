@@ -233,6 +233,7 @@ function renderMarkerLayer(layer: VisualMarkerLayerSpec): THREE.Object3D {
       layer.labelScale ?? 0.095,
       "text",
       layer.depthTest ?? false,
+      1,
     );
     group.add(label);
   }
@@ -350,6 +351,7 @@ function renderLabelLayer(layer: VisualLabelLayerSpec): THREE.Object3D {
     layer.scale ?? 0.095,
     layer.format ?? "text",
     layer.depthTest ?? false,
+    layer.transform?.revealProgress,
   );
 }
 
@@ -392,6 +394,7 @@ function createTextSprite(
   scale: number,
   format: "text" | "latex",
   depthTest: boolean,
+  revealProgress: number | undefined,
 ): THREE.Sprite {
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d");
@@ -401,28 +404,51 @@ function createTextSprite(
     return new THREE.Sprite(new THREE.SpriteMaterial({ map: fallbackTexture, transparent: true }));
   }
 
-  const fontSize = 34;
-  const displayText = format === "latex" ? latexToDisplayText(text) : text;
-  const fontFamily = format === "latex" ? "Georgia, serif" : "Arial, sans-serif";
+  const pixelRatio = 3;
+  const padding = format === "latex" ? 28 : 18;
+  const fontSize = format === "latex" ? 46 : 34;
+  const box =
+    format === "latex"
+      ? layoutLatex(text, fontSize, context)
+      : layoutPlainText(text, fontSize, context);
 
-  context.font = `${fontSize}px ${fontFamily}`;
-
-  canvas.width = Math.max(96, Math.ceil(context.measureText(displayText).width + 32));
-  canvas.height = 72;
+  canvas.width = Math.max(96, Math.ceil((box.width + padding * 2) * pixelRatio));
+  canvas.height = Math.max(72, Math.ceil((box.ascent + box.descent + padding * 2) * pixelRatio));
+  canvas.style.width = `${canvas.width / pixelRatio}px`;
+  canvas.style.height = `${canvas.height / pixelRatio}px`;
 
   context.clearRect(0, 0, canvas.width, canvas.height);
-  context.font = `${fontSize}px ${fontFamily}`;
+  context.scale(pixelRatio, pixelRatio);
   context.fillStyle = colorToCss(color);
-  context.textBaseline = "middle";
-  context.fillText(displayText, 16, canvas.height / 2);
+  context.strokeStyle = colorToCss(color);
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.textBaseline = "alphabetic";
+
+  const reveal = revealProgress === undefined ? 1 : Math.max(0, Math.min(1, revealProgress));
+
+  if (reveal < 1) {
+    context.save();
+    context.beginPath();
+    context.rect(0, 0, (box.width + padding * 2) * reveal, box.ascent + box.descent + padding * 2);
+    context.clip();
+  }
+
+  box.draw(context, padding, padding + box.ascent);
+
+  if (reveal < 1) {
+    context.restore();
+  }
 
   const texture = new THREE.CanvasTexture(canvas);
+  texture.anisotropy = 8;
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.needsUpdate = true;
 
   const material = new THREE.SpriteMaterial({
     map: texture,
     transparent: true,
+    alphaTest: 0.02,
     depthTest,
   });
 
@@ -506,7 +532,7 @@ function applyMaterialOpacity(material: THREE.Material | THREE.Material[], opaci
 }
 
 function applySingleMaterialOpacity(material: THREE.Material, opacity: number): void {
-  material.transparent = opacity < 1;
+  material.transparent = material.transparent || opacity < 1;
   material.opacity = opacity;
   material.needsUpdate = true;
 }
@@ -530,29 +556,341 @@ function addVec3(a: VisualVec3, b: VisualVec3): VisualVec3 {
   return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 }
 
-function toThreeColor(color: VisualColor): THREE.ColorRepresentation {
-  return colorToHex(color);
+type TextBox = {
+  width: number;
+  ascent: number;
+  descent: number;
+  draw: (context: CanvasRenderingContext2D, x: number, baseline: number) => void;
+};
+
+function layoutPlainText(
+  text: string,
+  fontSize: number,
+  context: CanvasRenderingContext2D,
+): TextBox {
+  return makeTextBox(text, fontSize, "Arial, sans-serif", context);
 }
 
-function latexToDisplayText(value: string): string {
-  return value
-    .replaceAll("\\cdot", "·")
-    .replaceAll("\\times", "×")
-    .replaceAll("\\pi", "π")
-    .replaceAll("\\theta", "θ")
-    .replaceAll("\\alpha", "α")
-    .replaceAll("\\beta", "β")
-    .replaceAll("\\gamma", "γ")
-    .replaceAll("\\Delta", "Δ")
-    .replaceAll("\\nabla", "∇")
-    .replaceAll("\\int", "∫")
-    .replaceAll("\\sum", "Σ")
-    .replaceAll("\\sqrt", "√")
-    .replaceAll("\\leq", "≤")
-    .replaceAll("\\geq", "≥")
-    .replaceAll("\\neq", "≠")
-    .replaceAll("{", "")
-    .replaceAll("}", "")
-    .replaceAll("^", "")
-    .replaceAll("_", "");
+function layoutLatex(
+  source: string,
+  fontSize: number,
+  context: CanvasRenderingContext2D,
+): TextBox {
+  const parser = new LatexBoxParser(source, fontSize, context);
+  return parser.parse();
+}
+
+class LatexBoxParser {
+  private index = 0;
+
+  constructor(
+    private readonly source: string,
+    private readonly fontSize: number,
+    private readonly context: CanvasRenderingContext2D,
+  ) {}
+
+  parse(): TextBox {
+    const box = this.parseSequence();
+    return box.width > 0 ? box : makeTextBox("", this.fontSize, latexFontFamily(), this.context);
+  }
+
+  private parseSequence(stop = ""): TextBox {
+    const boxes: TextBox[] = [];
+
+    while (this.index < this.source.length) {
+      if (stop && this.source[this.index] === stop) {
+        this.index += 1;
+        break;
+      }
+
+      const token = this.parseAtom();
+      if (!token) continue;
+
+      boxes.push(this.parseScripts(token));
+    }
+
+    return combineBoxes(boxes);
+  }
+
+  private parseAtom(): TextBox | null {
+    const char = this.source[this.index];
+
+    if (char === " ") {
+      this.index += 1;
+      return makeTextBox(" ", this.fontSize, latexFontFamily(), this.context);
+    }
+
+    if (char === "{") {
+      this.index += 1;
+      return this.parseSequence("}");
+    }
+
+    if (char === "}") {
+      this.index += 1;
+      return null;
+    }
+
+    if (char === "\\") {
+      return this.parseCommand();
+    }
+
+    this.index += 1;
+    return makeTextBox(char, this.fontSize, latexFontFamily(), this.context);
+  }
+
+  private parseCommand(): TextBox {
+    this.index += 1;
+    const start = this.index;
+
+    while (/[A-Za-z]/.test(this.source[this.index] ?? "")) {
+      this.index += 1;
+    }
+
+    const command = this.source.slice(start, this.index);
+
+    if (command === "frac") {
+      const numerator = this.parseRequiredGroup(this.fontSize * 0.76);
+      const denominator = this.parseRequiredGroup(this.fontSize * 0.76);
+      return makeFractionBox(numerator, denominator, this.fontSize);
+    }
+
+    if (command === "sqrt") {
+      const value = this.parseRequiredGroup(this.fontSize * 0.86);
+      return makeSqrtBox(value, this.fontSize, this.context);
+    }
+
+    if (command === "left" || command === "right") {
+      return this.parseAtom() ?? makeTextBox("", this.fontSize, latexFontFamily(), this.context);
+    }
+
+    if (command === "quad" || command === "qquad") {
+      return makeTextBox(command === "qquad" ? "    " : "  ", this.fontSize, latexFontFamily(), this.context);
+    }
+
+    return makeTextBox(latexCommandText(command), this.fontSize, latexFontFamily(), this.context);
+  }
+
+  private parseScripts(base: TextBox): TextBox {
+    let superscript: TextBox | undefined;
+    let subscript: TextBox | undefined;
+
+    while (this.source[this.index] === "^" || this.source[this.index] === "_") {
+      const marker = this.source[this.index];
+      this.index += 1;
+      const script = this.parseScriptAtom();
+
+      if (marker === "^") {
+        superscript = script;
+      } else {
+        subscript = script;
+      }
+    }
+
+    return superscript || subscript
+      ? makeScriptBox(base, superscript, subscript, this.fontSize)
+      : base;
+  }
+
+  private parseScriptAtom(): TextBox {
+    const scriptSize = this.fontSize * 0.62;
+    return this.source[this.index] === "{"
+      ? this.parseRequiredGroup(scriptSize)
+      : this.parseSingleAtom(scriptSize);
+  }
+
+  private parseSingleAtom(fontSize: number): TextBox {
+    const parser = new LatexBoxParser(this.source.slice(this.index), fontSize, this.context);
+    const box = parser.parseAtom() ?? makeTextBox("", fontSize, latexFontFamily(), this.context);
+    this.index += parser.index;
+    return box;
+  }
+
+  private parseRequiredGroup(fontSize: number): TextBox {
+    this.skipWhitespace();
+
+    if (this.source[this.index] !== "{") {
+      return this.parseSingleAtom(fontSize);
+    }
+
+    this.index += 1;
+    const parser = new LatexBoxParser(this.source.slice(this.index), fontSize, this.context);
+    const box = parser.parseSequence("}");
+    this.index += parser.index;
+    return box;
+  }
+
+  private skipWhitespace(): void {
+    while (this.source[this.index] === " ") {
+      this.index += 1;
+    }
+  }
+}
+
+function makeTextBox(
+  text: string,
+  fontSize: number,
+  fontFamily: string,
+  context: CanvasRenderingContext2D,
+): TextBox {
+  const font = `${fontSize}px ${fontFamily}`;
+  context.font = font;
+  const metrics = context.measureText(text);
+  const ascent = metrics.actualBoundingBoxAscent || fontSize * 0.78;
+  const descent = metrics.actualBoundingBoxDescent || fontSize * 0.24;
+
+  return {
+    width: metrics.width,
+    ascent,
+    descent,
+    draw: (target, x, baseline) => {
+      target.font = font;
+      target.fillText(text, x, baseline);
+    },
+  };
+}
+
+function combineBoxes(boxes: TextBox[]): TextBox {
+  const width = boxes.reduce((sum, box) => sum + box.width, 0);
+  const ascent = Math.max(...boxes.map((box) => box.ascent), 1);
+  const descent = Math.max(...boxes.map((box) => box.descent), 1);
+
+  return {
+    width,
+    ascent,
+    descent,
+    draw: (context, x, baseline) => {
+      let cursor = x;
+
+      boxes.forEach((box) => {
+        box.draw(context, cursor, baseline);
+        cursor += box.width;
+      });
+    },
+  };
+}
+
+function makeFractionBox(numerator: TextBox, denominator: TextBox, fontSize: number): TextBox {
+  const gap = fontSize * 0.12;
+  const linePadding = fontSize * 0.12;
+  const width = Math.max(numerator.width, denominator.width) + linePadding * 2;
+  const ascent = numerator.ascent + numerator.descent + gap + fontSize * 0.06;
+  const descent = denominator.ascent + denominator.descent + gap;
+
+  return {
+    width,
+    ascent,
+    descent,
+    draw: (context, x, baseline) => {
+      const center = x + width / 2;
+      const lineY = baseline - fontSize * 0.06;
+      numerator.draw(context, center - numerator.width / 2, lineY - gap - numerator.descent);
+      denominator.draw(context, center - denominator.width / 2, lineY + gap + denominator.ascent);
+      context.lineWidth = Math.max(1.4, fontSize * 0.035);
+      context.beginPath();
+      context.moveTo(x + linePadding * 0.45, lineY);
+      context.lineTo(x + width - linePadding * 0.45, lineY);
+      context.stroke();
+    },
+  };
+}
+
+function makeScriptBox(
+  base: TextBox,
+  superscript: TextBox | undefined,
+  subscript: TextBox | undefined,
+  fontSize: number,
+): TextBox {
+  const scriptWidth = Math.max(superscript?.width ?? 0, subscript?.width ?? 0);
+  const gap = fontSize * 0.035;
+  const ascent = Math.max(base.ascent, (superscript?.ascent ?? 0) + (superscript?.descent ?? 0) + fontSize * 0.28);
+  const descent = Math.max(base.descent, (subscript?.ascent ?? 0) + (subscript?.descent ?? 0) + fontSize * 0.1);
+
+  return {
+    width: base.width + scriptWidth + gap,
+    ascent,
+    descent,
+    draw: (context, x, baseline) => {
+      base.draw(context, x, baseline);
+
+      if (superscript) {
+        superscript.draw(context, x + base.width + gap, baseline - fontSize * 0.46);
+      }
+
+      if (subscript) {
+        subscript.draw(context, x + base.width + gap, baseline + fontSize * 0.34);
+      }
+    },
+  };
+}
+
+function makeSqrtBox(
+  value: TextBox,
+  fontSize: number,
+  context: CanvasRenderingContext2D,
+): TextBox {
+  const radical = makeTextBox("√", fontSize * 1.08, latexFontFamily(), context);
+  const gap = fontSize * 0.08;
+  const width = radical.width + value.width + gap;
+  const ascent = Math.max(radical.ascent, value.ascent + fontSize * 0.18);
+  const descent = Math.max(radical.descent, value.descent);
+
+  return {
+    width,
+    ascent,
+    descent,
+    draw: (target, x, baseline) => {
+      radical.draw(target, x, baseline);
+      value.draw(target, x + radical.width + gap, baseline);
+      target.lineWidth = Math.max(1.2, fontSize * 0.032);
+      target.beginPath();
+      target.moveTo(x + radical.width + gap * 0.6, baseline - value.ascent - fontSize * 0.08);
+      target.lineTo(x + width, baseline - value.ascent - fontSize * 0.08);
+      target.stroke();
+    },
+  };
+}
+
+function latexFontFamily(): string {
+  return "Cambria Math, STIX Two Math, Times New Roman, Georgia, serif";
+}
+
+function latexCommandText(command: string): string {
+  const symbols: Record<string, string> = {
+    alpha: "α",
+    beta: "β",
+    gamma: "γ",
+    delta: "δ",
+    Delta: "Δ",
+    epsilon: "ε",
+    theta: "θ",
+    lambda: "λ",
+    mu: "μ",
+    pi: "π",
+    rho: "ρ",
+    sigma: "σ",
+    omega: "ω",
+    Omega: "Ω",
+    nabla: "∇",
+    partial: "∂",
+    infty: "∞",
+    int: "∫",
+    sum: "Σ",
+    prod: "Π",
+    cdot: "·",
+    times: "×",
+    div: "÷",
+    leq: "≤",
+    geq: "≥",
+    neq: "≠",
+    to: "→",
+    rightarrow: "→",
+    leftarrow: "←",
+    pm: "±",
+  };
+
+  return symbols[command] ?? command;
+}
+
+function toThreeColor(color: VisualColor): THREE.ColorRepresentation {
+  return colorToHex(color);
 }

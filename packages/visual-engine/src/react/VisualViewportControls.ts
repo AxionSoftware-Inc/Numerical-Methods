@@ -5,7 +5,7 @@ import * as THREE from "three";
 export type ViewportAction = "orbit" | "pan";
 
 export type VisualViewportControlsOptions = {
-  camera: THREE.PerspectiveCamera;
+  camera: THREE.PerspectiveCamera | THREE.OrthographicCamera;
   element: HTMLCanvasElement;
   target?: THREE.Vector3;
   minDistance?: number;
@@ -25,7 +25,7 @@ export type VisualCameraPose = {
 };
 
 export class VisualViewportControls {
-  readonly camera: THREE.PerspectiveCamera;
+  readonly camera: THREE.PerspectiveCamera | THREE.OrthographicCamera;
   readonly element: HTMLCanvasElement;
   readonly target: THREE.Vector3;
 
@@ -285,6 +285,16 @@ export class VisualViewportControls {
   }
 
   private zoomImmediate(delta: number): void {
+    if (this.camera instanceof THREE.OrthographicCamera) {
+      this.camera.zoom = THREE.MathUtils.clamp(
+        this.camera.zoom / (1 + delta * this.zoomSpeed),
+        0.25,
+        6,
+      );
+      this.camera.updateProjectionMatrix();
+      return;
+    }
+
     const direction = this.camera.position.clone().sub(this.target);
     const distance = direction.length();
 

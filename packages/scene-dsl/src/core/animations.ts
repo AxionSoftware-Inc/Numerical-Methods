@@ -1,6 +1,8 @@
 import type {
   SceneAnimation,
   SceneAnimationTarget,
+  SceneDropDirection,
+  SceneDropInAnimation,
   SceneFadeInAnimation,
   SceneFadeOutAnimation,
   SceneHideAnimation,
@@ -43,6 +45,11 @@ export type MoveOptions = AnimationOptions;
 export type ScaleOptions = AnimationOptions;
 
 export type RotateOptions = AnimationOptions;
+
+export type DropInOptions = AnimationOptions & {
+  direction?: SceneDropDirection;
+  distance?: number;
+};
 
 export function write(
   target: SceneAnimationTarget,
@@ -97,6 +104,20 @@ export function hide(target: SceneAnimationTarget): SceneHideAnimation {
     kind: "hide",
     target,
     duration: 0,
+  };
+}
+
+export function dropIn(
+  target: SceneAnimationTarget,
+  options: DropInOptions = {},
+): SceneDropInAnimation {
+  return {
+    kind: "drop-in",
+    target,
+    direction: options.direction ?? "top",
+    distance: options.distance ?? 0.55,
+    duration: options.duration ?? 0.85,
+    easing: options.easing ?? "ease-out-cubic",
   };
 }
 
