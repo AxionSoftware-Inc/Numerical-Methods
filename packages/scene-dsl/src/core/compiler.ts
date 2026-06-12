@@ -233,6 +233,7 @@ function compileAxesObject(object: SceneAxesObject): VisualLayerSpec[] {
     xLabel: object.xLabel ?? "x",
     yLabel: object.yLabel ?? "y",
     zLabel: object.zLabel ?? "z",
+    showZ: object.showZ ?? true,
     color: typeof object.color === "string" ? object.color : undefined,
   });
 }
@@ -243,6 +244,7 @@ function compileGridObject(object: SceneGridObject): VisualLayerSpec {
     size: object.size ?? 3.2,
     divisions: object.divisions ?? 18,
     y: object.y ?? -0.86,
+    plane: object.plane ?? "xz",
     color: typeof object.color === "string" ? object.color : "#164653",
     opacity: object.opacity ?? 0.34,
   });
@@ -413,6 +415,16 @@ function compileAnimationToTracks(
           easing: animation.easing ?? "ease-out-cubic",
           mode: "absolute",
         },
+        {
+          kind: "draw",
+          objectId: targetId(animation.target),
+          from: 0,
+          to: 1,
+          startTime: start,
+          endTime: end,
+          easing: animation.easing ?? "ease-out-cubic",
+          mode: "absolute",
+        },
       ];
 
     case "fade-in":
@@ -488,11 +500,21 @@ function compileAnimationToTracks(
         {
           kind: "fade",
           objectId: targetId(animation.target),
-          from: 1,
+          from: 0,
           to: 1,
           startTime: start,
           endTime: Math.max(start + 0.001, end),
-          easing: "linear",
+          easing: animation.easing ?? "ease-out-cubic",
+          mode: "absolute",
+        },
+        {
+          kind: "draw",
+          objectId: targetId(animation.target),
+          from: 0,
+          to: 1,
+          startTime: start,
+          endTime: Math.max(start + 0.001, end),
+          easing: animation.easing ?? "ease-out-cubic",
           mode: "absolute",
         },
       ];
@@ -502,11 +524,21 @@ function compileAnimationToTracks(
         {
           kind: "fade",
           objectId: targetId(animation.target),
-          from: 0,
+          from: 1,
           to: 0,
           startTime: start,
           endTime: Math.max(start + 0.001, end),
-          easing: "linear",
+          easing: animation.easing ?? "ease-in-cubic",
+          mode: "absolute",
+        },
+        {
+          kind: "draw",
+          objectId: targetId(animation.target),
+          from: 1,
+          to: 0,
+          startTime: start,
+          endTime: Math.max(start + 0.001, end),
+          easing: animation.easing ?? "ease-in-cubic",
           mode: "absolute",
         },
       ];

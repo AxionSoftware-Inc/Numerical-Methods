@@ -119,6 +119,7 @@ export type SceneAxesObject = SceneObjectBase & {
   xLabel?: string;
   yLabel?: string;
   zLabel?: string;
+  showZ?: boolean;
   color?: VisualColor;
 };
 
@@ -127,6 +128,7 @@ export type SceneGridObject = SceneObjectBase & {
   size?: number;
   divisions?: number;
   y?: number;
+  plane?: "xy" | "xz" | "yz";
   color?: VisualColor;
   opacity?: number;
 };

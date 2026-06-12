@@ -50,10 +50,14 @@ export const graphCommand: VideoLabCommand = {
       const expression = compileMathExpression(expressionSource);
       const from = resolveNumber(tokens[fromIndex + 1], context, -Math.PI);
       const to = resolveNumber(tokens[toIndex + 1], context, Math.PI);
-      const samples = Math.round(parseNamedNumber(tokens, "samples", context, 96));
+      const samples = Math.max(
+        24,
+        Math.min(512, Math.round(parseNamedNumber(tokens, "samples", context, 144))),
+      );
       const scale = parseNamedNumber(tokens, "scale", context, 0.55);
       const yScale = parseNamedNumber(tokens, "yscale", context, scale);
-      const z = parseNamedNumber(tokens, "z", context, 0);
+      const y = parseNamedNumber(tokens, "y", context, 0);
+      const z = parseNamedNumber(tokens, "z", context, 0.04);
       const color = parseNamedColor(tokens, "color", context, "#67e8f9");
       const opacity = parseNamedNumber(tokens, "opacity", context, 0.95);
 
@@ -65,7 +69,7 @@ export const graphCommand: VideoLabCommand = {
         scale,
         yScale,
         z,
-      });
+      }).map(([x, pointY, pointZ]) => [x, pointY + y, pointZ] as [number, number, number]);
 
       if (points.length < 2) {
         context.warnings.push(`Line ${lineNumber}: graph produced too few valid points.`);
@@ -79,8 +83,11 @@ export const graphCommand: VideoLabCommand = {
         opacity,
       });
     } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown expression error.";
+
       context.warnings.push(
-        `Line ${lineNumber}: ${error instanceof Error ? error.message : "Could not compile graph."}`,
+        `Line ${lineNumber}: Invalid graph expression "${expressionSource}". ${message}`,
       );
     }
   },
@@ -107,6 +114,34 @@ export const graphCommand: VideoLabCommand = {
         lineNumber,
         message: `Graph needs range. Example: graph g = sin(x) from -pi to pi.`,
       });
+    }
+
+    const equalsIndex = tokens.indexOf("=");
+    const fromIndex = tokens.indexOf("from");
+    const toIndex = tokens.indexOf("to");
+
+    if (equalsIndex >= 0 && fromIndex >= 0 && toIndex >= 0) {
+      const expressionSource = tokens
+        .slice(equalsIndex + 1, Math.min(fromIndex, toIndex))
+        .join("");
+
+      if (!expressionSource) {
+        diagnostics.push({
+          lineNumber,
+          message: `Graph expression missing. Example: graph g = sin(x) from -pi to pi.`,
+        });
+      } else {
+        try {
+          compileMathExpression(expressionSource);
+        } catch (error) {
+          diagnostics.push({
+            lineNumber,
+            message: `Invalid graph expression "${expressionSource}". ${
+              error instanceof Error ? error.message : "Check syntax."
+            }`,
+          });
+        }
+      }
     }
 
     return diagnostics;

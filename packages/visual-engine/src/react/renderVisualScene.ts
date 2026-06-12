@@ -146,7 +146,16 @@ function renderMeshLayer(layer: VisualMeshLayerSpec): THREE.Object3D {
 }
 
 function renderLineLayer(layer: VisualLineLayerSpec): THREE.Object3D {
-  const points = layer.segments.flatMap((segment) => [toVector(segment.from), toVector(segment.to)]);
+  const points = partialLineSegments(
+    layer.segments,
+    clamp01(layer.transform?.drawProgress ?? 1),
+  ).flatMap((segment) => [toVector(segment.from), toVector(segment.to)]);
+
+  if (points.length < 2) {
+    const empty = new THREE.Group();
+    empty.name = layer.id;
+    return empty;
+  }
 
   const line = new THREE.LineSegments(
     new THREE.BufferGeometry().setFromPoints(points),
@@ -164,10 +173,16 @@ function renderLineLayer(layer: VisualLineLayerSpec): THREE.Object3D {
 }
 
 function renderPathLayer(layer: VisualPathLayerSpec): THREE.Object3D {
-  const points = layer.points.map(toVector);
+  const points = partialPathPoints(
+    layer.points,
+    clamp01(layer.transform?.drawProgress ?? 1),
+    layer.closed,
+  ).map(toVector);
 
-  if (layer.closed && points.length > 2) {
-    points.push(points[0].clone());
+  if (points.length < 2) {
+    const empty = new THREE.Group();
+    empty.name = layer.id;
+    return empty;
   }
 
   const line = new THREE.Line(
@@ -186,11 +201,18 @@ function renderPathLayer(layer: VisualPathLayerSpec): THREE.Object3D {
 }
 
 function renderPointCloudLayer(layer: VisualPointCloudLayerSpec): THREE.Object3D {
+  const visibleCount = Math.max(
+    0,
+    Math.min(
+      layer.points.length,
+      Math.ceil(layer.points.length * clamp01(layer.transform?.drawProgress ?? 1)),
+    ),
+  );
   const geometry = new THREE.BufferGeometry();
 
   geometry.setAttribute(
     "position",
-    new THREE.Float32BufferAttribute(layer.points.flat(), 3),
+    new THREE.Float32BufferAttribute(layer.points.slice(0, visibleCount).flat(), 3),
   );
 
   const material = new THREE.PointsMaterial({
@@ -211,9 +233,10 @@ function renderPointCloudLayer(layer: VisualPointCloudLayerSpec): THREE.Object3D
 function renderMarkerLayer(layer: VisualMarkerLayerSpec): THREE.Object3D {
   const group = new THREE.Group();
   group.name = layer.id;
+  const drawProgress = clamp01(layer.transform?.drawProgress ?? 1);
 
   const sphere = new THREE.Mesh(
-    new THREE.SphereGeometry(layer.radius, 18, 18),
+    new THREE.SphereGeometry(Math.max(layer.radius * drawProgress, 1e-4), 18, 18),
     new THREE.MeshBasicMaterial({
       color: toThreeColor(layer.color),
       depthTest: layer.depthTest ?? false,
@@ -233,7 +256,7 @@ function renderMarkerLayer(layer: VisualMarkerLayerSpec): THREE.Object3D {
       layer.labelScale ?? 0.095,
       "text",
       layer.depthTest ?? false,
-      1,
+      drawProgress,
     );
     group.add(label);
   }
@@ -279,10 +302,12 @@ function renderBoxOutlineLayer(layer: VisualBoxOutlineLayerSpec): THREE.Object3D
 function renderArrowLayer(layer: VisualArrowLayerSpec): THREE.Object3D {
   const group = new THREE.Group();
   group.name = layer.id;
+  const drawProgress = clamp01(layer.transform?.drawProgress ?? 1);
 
   const start = toVector(layer.from);
   const end = toVector(layer.to);
-  const direction = end.clone().sub(start);
+  const partialEnd = start.clone().lerp(end, drawProgress);
+  const direction = partialEnd.clone().sub(start);
   const length = direction.length();
 
   if (length < 1e-9) {
@@ -292,7 +317,7 @@ function renderArrowLayer(layer: VisualArrowLayerSpec): THREE.Object3D {
   direction.normalize();
 
   const line = new THREE.Line(
-    new THREE.BufferGeometry().setFromPoints([start, end]),
+    new THREE.BufferGeometry().setFromPoints([start, partialEnd]),
     new THREE.LineBasicMaterial({
       color: toThreeColor(layer.color),
       transparent: layer.opacity !== undefined || layer.opacity !== 1,
@@ -313,7 +338,7 @@ function renderArrowLayer(layer: VisualArrowLayerSpec): THREE.Object3D {
     }),
   );
 
-  cone.position.copy(end);
+  cone.position.copy(partialEnd);
   cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);
   group.add(cone);
 
@@ -476,6 +501,63 @@ function applyLayerBase(object: THREE.Object3D, layer: VisualLayerBase): void {
   object.userData.layerKind = layer.kind;
   object.userData.pickable = layer.pickable;
   object.userData.metadata = layer.metadata;
+}
+
+function partialPathPoints(
+  points: VisualVec3[],
+  progress: number,
+  closed?: boolean,
+): VisualVec3[] {
+  if (points.length === 0 || progress <= 0) return [];
+  const source = closed && points.length > 2 ? [...points, points[0]] : [...points];
+  if (progress >= 1 || source.length < 2) return source;
+
+  const totalSegments = source.length - 1;
+  const scaled = progress * totalSegments;
+  const fullSegments = Math.floor(scaled);
+  const remainder = scaled - fullSegments;
+  const result = source.slice(0, fullSegments + 1);
+
+  if (fullSegments < totalSegments) {
+    result.push(lerpVec3(source[fullSegments], source[fullSegments + 1], remainder));
+  }
+
+  return result;
+}
+
+function partialLineSegments(
+  segments: VisualLineLayerSpec["segments"],
+  progress: number,
+): VisualLineLayerSpec["segments"] {
+  if (segments.length === 0 || progress <= 0) return [];
+  if (progress >= 1) return segments;
+
+  const scaled = progress * segments.length;
+  const fullSegments = Math.floor(scaled);
+  const remainder = scaled - fullSegments;
+  const result = segments.slice(0, fullSegments);
+
+  if (fullSegments < segments.length) {
+    const segment = segments[fullSegments];
+    result.push({
+      ...segment,
+      to: lerpVec3(segment.from, segment.to, remainder),
+    });
+  }
+
+  return result;
+}
+
+function lerpVec3(from: VisualVec3, to: VisualVec3, t: number): VisualVec3 {
+  return [
+    from[0] + (to[0] - from[0]) * t,
+    from[1] + (to[1] - from[1]) * t,
+    from[2] + (to[2] - from[2]) * t,
+  ];
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
 }
 
 function applyTransform(object: THREE.Object3D, transform: VisualTransformSpec | undefined): THREE.Object3D {

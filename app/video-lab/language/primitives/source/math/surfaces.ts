@@ -63,225 +63,66 @@ export const areaSourcePrimitive: SourcePrimitive = {
         const id = tokens[1];
 
         if (!id) {
-            warn(
-                args,
-                `wave_surface id missing. Example: wave_surface ws = sin(x)*cos(y) range 3.`,
-            );
+            warn(args, `area id missing. Example: area a = sin(x) from 0 to pi.`);
             return;
         }
 
         const equalsIndex = tokenIndex(tokens, "=");
+        const fromIndex = tokenIndex(tokens, "from");
+        const toIndex = tokenIndex(tokens, "to");
 
-        if (equalsIndex < 0) {
-            warn(
-                args,
-                `wave_surface is missing "=". Example: wave_surface ws = sin(x)*cos(y) range 3.`,
-            );
+        if (equalsIndex < 0 || fromIndex < 0 || toIndex < 0) {
+            warn(args, `area needs expression and range. Example: area a = sin(x) from 0 to pi.`);
             return;
         }
 
-        const expressionEnd = firstStopIndex(
+        const expressionSource = expressionBetween(
             tokens,
-            tokens.length,
-            "range",
-            "rows",
-            "cols",
-            "color",
-            "opacity",
-            "scale",
-            "height",
-            "y",
-            "z",
-            "mode",
-            "guides",
-            "guideOpacity",
-            "edgeFade",
-            "meshOpacity",
-            "lineOpacity",
+            equalsIndex + 1,
+            Math.min(fromIndex, toIndex),
         );
 
-        const expressionSource = expressionBetween(tokens, equalsIndex + 1, expressionEnd);
-
         if (!expressionSource) {
-            warn(args, "wave_surface expression missing.");
+            warn(args, "area expression missing.");
             return;
         }
 
         try {
             const expression = compileMathExpression(expressionSource);
-
-            const modeIndex = tokenIndex(tokens, "mode");
-            const mode = modeIndex >= 0 ? tokens[modeIndex + 1] ?? "lines" : "lines";
-
-            if (mode !== "lines" && mode !== "mesh") {
-                warn(args, `Unknown wave_surface mode "${mode}". Use lines or mesh.`);
-                return;
-            }
-
-            const range = parseNamedNumber(tokens, "range", context, 3);
-            const rows = Math.max(
-                4,
-                Math.min(128, Math.round(parseNamedNumber(tokens, "rows", context, 38))),
+            const from = resolveNumber(tokens[fromIndex + 1], context, 0);
+            const to = resolveNumber(tokens[toIndex + 1], context, Math.PI);
+            const samples = Math.max(
+                24,
+                Math.min(400, Math.round(parseNamedNumber(tokens, "samples", context, 144))),
             );
-            const cols = Math.max(
-                8,
-                Math.min(260, Math.round(parseNamedNumber(tokens, "cols", context, 110))),
-            );
+            const scale = parseNamedNumber(tokens, "scale", context, 0.55);
+            const yScale = parseNamedNumber(tokens, "yscale", context, scale);
+            const baseline = parseNamedNumber(tokens, "baseline", context, 0);
+            const y = parseNamedNumber(tokens, "y", context, 0);
+            const z = parseNamedNumber(tokens, "z", context, 0.02);
+            const color = parseNamedColor(tokens, "color", context, "#fde047");
+            const opacity = parseNamedNumber(tokens, "opacity", context, 0.45);
+            const points: Vec3[] = [[from * scale, y + baseline * yScale, z]];
 
-            const scale = parseNamedNumber(tokens, "scale", context, 0.46);
-            const height = parseNamedNumber(tokens, "height", context, 0.5);
-            const baseY = parseNamedNumber(tokens, "y", context, 0);
-            const baseZ = parseNamedNumber(tokens, "z", context, 0);
-
-            const color = parseNamedColor(tokens, "color", context, "#67e8f9");
-            const opacity = parseNamedNumber(tokens, "opacity", context, 0.84);
-            const meshOpacity = parseNamedNumber(tokens, "meshOpacity", context, mode === "mesh" ? 0.58 : 0);
-            const lineOpacity = parseNamedNumber(tokens, "lineOpacity", context, mode === "mesh" ? 0.16 : opacity);
-            const guideCount = Math.max(0, Math.round(parseNamedNumber(tokens, "guides", context, mode === "mesh" ? 14 : 12)));
-            const guideOpacity = parseNamedNumber(tokens, "guideOpacity", context, mode === "mesh" ? 0.08 : 0.22);
-            const edgeFade = Math.max(0, Math.min(0.85, parseNamedNumber(tokens, "edgeFade", context, 0.28)));
-
-            const rowStep = rows <= 1 ? 0 : (range * 2) / (rows - 1);
-            const colStep = cols <= 1 ? 0 : (range * 2) / (cols - 1);
-
-            const grid: Vec3[][] = [];
-
-            for (let row = 0; row < rows; row += 1) {
-                const sourceY = -range + row * rowStep;
-                const rowPoints: Vec3[] = [];
-
-                for (let col = 0; col < cols; col += 1) {
-                    const sourceX = -range + col * colStep;
-                    const value = expression.evaluate({
-                        x: sourceX,
-                        y: sourceY,
-                        t: 0,
-                    });
-
-                    if (!Number.isFinite(value)) {
-                        rowPoints.push([sourceX * scale, baseY, baseZ + sourceY * scale]);
-                        continue;
-                    }
-
-                    rowPoints.push([
-                        sourceX * scale,
-                        baseY + value * height,
-                        baseZ + sourceY * scale,
-                    ]);
-                }
-
-                grid.push(rowPoints);
+            for (let index = 0; index <= samples; index += 1) {
+                const progress = index / samples;
+                const x = from + (to - from) * progress;
+                const value = expression.evaluate({ x, y: 0, t: context.time });
+                points.push([x * scale, y + value * yScale, z]);
             }
 
-            if (mode === "mesh") {
-                const positions: number[] = [];
-                const indices: number[] = [];
+            points.push([to * scale, y + baseline * yScale, z]);
+            points.push([from * scale, y + baseline * yScale, z]);
 
-                for (let row = 0; row < rows; row += 1) {
-                    for (let col = 0; col < cols; col += 1) {
-                        const point = grid[row][col];
-                        positions.push(point[0], point[1], point[2]);
-                    }
-                }
-
-                for (let row = 0; row < rows - 1; row += 1) {
-                    for (let col = 0; col < cols - 1; col += 1) {
-                        const a = row * cols + col;
-                        const b = row * cols + col + 1;
-                        const c = (row + 1) * cols + col + 1;
-                        const d = (row + 1) * cols + col;
-
-                        indices.push(a, b, c);
-                        indices.push(a, c, d);
-                    }
-                }
-
-                context.scene.surface(
-                    {
-                        id: `${id}-mesh-scene`,
-                        style: {
-                            background: "#050b0f",
-                            fogNear: 9,
-                            fogFar: 30,
-                        },
-                        camera: {
-                            position: [3.8, 3.2, 4.8],
-                            target: [0, -0.1, 0],
-                            fov: 42,
-                            minDistance: 1.8,
-                            maxDistance: 14,
-                        },
-                        layers: [
-                            {
-                                kind: "mesh",
-                                id: `${id}-mesh`,
-                                objectId: id,
-                                positions,
-                                indices,
-                                material: {
-                                    color,
-                                    opacity: meshOpacity,
-                                    transparent: true,
-                                    doubleSided: true,
-                                    depthWrite: false,
-                                    depthTest: true,
-                                    shading: "basic",
-                                },
-                            },
-                        ],
-                    },
-                    {
-                        id: `${id}-mesh-object`,
-                        objectId: id,
-                    },
-                );
-            }
-
-            for (let row = 0; row < rows; row += 1) {
-                const rowProgress = rows <= 1 ? 0 : row / (rows - 1);
-                const points = grid[row];
-
-                if (points.length < 2) continue;
-
-                const centerWeight = 1 - Math.abs(rowProgress - 0.5) * 2;
-                const fadeWeight = 1 - edgeFade + edgeFade * centerWeight;
-                const rowOpacity = lineOpacity * fadeWeight;
-
-                context.scene.path(points, {
-                    id: `${id}-row-${row}`,
-                    objectId: id,
-                    color,
-                    opacity: rowOpacity,
-                });
-            }
-
-            if (guideCount > 0) {
-                const guideEvery = Math.max(1, Math.round(cols / guideCount));
-
-                for (let col = 0; col < cols; col += guideEvery) {
-                    const points: Vec3[] = [];
-
-                    for (let row = 0; row < rows; row += 1) {
-                        points.push(grid[row][col]);
-                    }
-
-                    if (points.length < 2) continue;
-
-                    context.scene.path(points, {
-                        id: `${id}-guide-${col}`,
-                        objectId: id,
-                        color,
-                        opacity: opacity * guideOpacity,
-                    });
-                }
-            }
+            context.scene.path(points, {
+                id,
+                objectId: id,
+                color,
+                opacity,
+            });
         } catch (error) {
-            warn(
-                args,
-                error instanceof Error
-                    ? error.message
-                    : "Could not compile wave_surface.",
-            );
+            const message = error instanceof Error ? error.message : "Unknown expression error.";
+            warn(args, `Invalid area expression "${expressionSource}". ${message}`);
         }
     },
 
@@ -307,6 +148,36 @@ export const areaSourcePrimitive: SourcePrimitive = {
                 lineNumber,
                 message: `Area needs range. Example: area a = sin(x) from 0 to pi.`,
             });
+        }
+
+        const equalsIndex = tokenIndex(tokens, "=");
+        const fromIndex = tokenIndex(tokens, "from");
+        const toIndex = tokenIndex(tokens, "to");
+
+        if (equalsIndex >= 0 && fromIndex >= 0 && toIndex >= 0) {
+            const expressionSource = expressionBetween(
+                tokens,
+                equalsIndex + 1,
+                Math.min(fromIndex, toIndex),
+            );
+
+            if (!expressionSource) {
+                diagnostics.push({
+                    lineNumber,
+                    message: `Area expression missing. Example: area a = sin(x) from 0 to pi.`,
+                });
+            } else {
+                try {
+                    compileMathExpression(expressionSource);
+                } catch (error) {
+                    diagnostics.push({
+                        lineNumber,
+                        message: `Invalid area expression "${expressionSource}". ${
+                            error instanceof Error ? error.message : "Check syntax."
+                        }`,
+                    });
+                }
+            }
         }
 
         return diagnostics;
@@ -348,8 +219,10 @@ export const circleSourcePrimitive: SourcePrimitive = {
             return;
         }
 
-        const center = parseNamedVec3(tokens, "at", context, [0, 0, 0]);
+        const center = parseNamedVec3(tokens, "at", context, [0, 0, 0.03]);
         const radius = parseNamedNumber(tokens, "radius", context, 1);
+        const radiusX = parseNamedNumber(tokens, "radiusX", context, radius);
+        const radiusY = parseNamedNumber(tokens, "radiusY", context, radius);
         const samples = Math.max(16, Math.round(parseNamedNumber(tokens, "samples", context, 96)));
         const color = parseNamedColor(tokens, "color", context, "#67e8f9");
         const opacity = parseNamedNumber(tokens, "opacity", context, 0.95);
@@ -360,8 +233,8 @@ export const circleSourcePrimitive: SourcePrimitive = {
         for (let index = 0; index <= samples; index += 1) {
             const angle = (index / samples) * Math.PI * 2;
             points.push([
-                center[0] + Math.cos(angle) * radius,
-                center[1] + Math.sin(angle) * radius,
+                center[0] + Math.cos(angle) * radiusX,
+                center[1] + Math.sin(angle) * radiusY,
                 z,
             ]);
         }
@@ -442,12 +315,13 @@ export const numberLineSourcePrimitive: SourcePrimitive = {
 
         const from = resolveNumber(tokens[fromIndex + 1], context, -5);
         const to = resolveNumber(tokens[toIndex + 1], context, 5);
-        const y = parseNamedNumber(tokens, "y", context, -1.05);
-        const z = parseNamedNumber(tokens, "z", context, 0);
+        const y = parseNamedNumber(tokens, "y", context, -1.22);
+        const z = parseNamedNumber(tokens, "z", context, 0.03);
         const scale = parseNamedNumber(tokens, "scale", context, 0.28);
         const ticks = Math.max(0, Math.round(parseNamedNumber(tokens, "ticks", context, 10)));
         const color = parseNamedColor(tokens, "color", context, "#67e8f9");
         const opacity = parseNamedNumber(tokens, "opacity", context, 0.95);
+        const tickSize = parseNamedNumber(tokens, "tickSize", context, 0.045);
 
         const start: Vec3 = [from * scale, y, z];
         const end: Vec3 = [to * scale, y, z];
@@ -466,8 +340,8 @@ export const numberLineSourcePrimitive: SourcePrimitive = {
 
             context.scene.path(
                 [
-                    [x, y - 0.045, z],
-                    [x, y + 0.045, z],
+                    [x, y - tickSize, z],
+                    [x, y + tickSize, z],
                 ],
                 {
                     id: `${id}-tick-${index}`,
@@ -568,6 +442,10 @@ export const parametricSourcePrimitive: SourcePrimitive = {
             const to = resolveNumber(tokens[toIndex + 1], context, Math.PI * 2);
             const samples = Math.max(8, Math.min(512, Math.round(parseNamedNumber(tokens, "samples", context, 128))));
             const scale = parseNamedNumber(tokens, "scale", context, 0.55);
+            const xScale = parseNamedNumber(tokens, "xscale", context, scale);
+            const yScale = parseNamedNumber(tokens, "yscale", context, scale);
+            const zScale = parseNamedNumber(tokens, "zscale", context, scale);
+            const offset = parseNamedVec3(tokens, "at", context, [0, 0, 0.04]);
             const color = parseNamedColor(tokens, "color", context, "#67e8f9");
             const opacity = parseNamedNumber(tokens, "opacity", context, 0.95);
 
@@ -576,9 +454,9 @@ export const parametricSourcePrimitive: SourcePrimitive = {
             for (let index = 0; index <= samples; index += 1) {
                 const progress = index / samples;
                 const t = from + (to - from) * progress;
-                const x = xExpression.evaluate({ t }) * scale;
-                const y = yExpression.evaluate({ t }) * scale;
-                const z = zExpression ? zExpression.evaluate({ t }) * scale : 0;
+                const x = xExpression.evaluate({ t }) * xScale + offset[0];
+                const y = yExpression.evaluate({ t }) * yScale + offset[1];
+                const z = (zExpression ? zExpression.evaluate({ t }) * zScale : 0) + offset[2];
 
                 if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
                     points.push([x, y, z]);
@@ -597,8 +475,40 @@ export const parametricSourcePrimitive: SourcePrimitive = {
                 opacity,
             });
         } catch (error) {
-            warn(args, error instanceof Error ? error.message : "Could not compile parametric curve.");
+            warn(
+                args,
+                error instanceof Error
+                    ? `Invalid parametric expression. ${error.message}`
+                    : "Could not compile parametric curve.",
+            );
         }
+    },
+
+    diagnose({ tokens, lineNumber }) {
+        const diagnostics = [];
+
+        if (!tokens[1]) {
+            diagnostics.push({
+                lineNumber,
+                message: `parametric id missing. Example: parametric c x = cos(t) y = sin(t) from 0 to 2*pi.`,
+            });
+        }
+
+        if (!tokenRequired(tokens, "x") || !tokenRequired(tokens, "y")) {
+            diagnostics.push({
+                lineNumber,
+                message: `parametric needs x/y expressions. Example: parametric c x = cos(t) y = sin(t) from 0 to 2*pi.`,
+            });
+        }
+
+        if (!tokenRequired(tokens, "from") || !tokenRequired(tokens, "to")) {
+            diagnostics.push({
+                lineNumber,
+                message: `parametric needs from/to. Example: parametric c x = cos(t) y = sin(t) from 0 to 2*pi.`,
+            });
+        }
+
+        return diagnostics;
     },
 };
 

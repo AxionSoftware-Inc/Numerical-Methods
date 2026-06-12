@@ -95,9 +95,10 @@ export const tangentSourcePrimitive: SourcePrimitive = {
 
     try {
       const expression = compileMathExpression(expressionSource);
+      const currentTime = context.time;
 
       const x0 = resolveNumber(tokens[atIndex + 1], context, 0);
-      const y0 = expression.evaluate({ x: x0 });
+      const y0 = expression.evaluate({ x: x0, y: 0, t: currentTime });
 
       if (!Number.isFinite(y0)) {
         warn(args, `tangent value is not finite at x=${x0}.`);
@@ -105,8 +106,8 @@ export const tangentSourcePrimitive: SourcePrimitive = {
       }
 
       const h = parseNamedNumber(tokens, "h", context, 1e-4);
-      const yLeft = expression.evaluate({ x: x0 - h });
-      const yRight = expression.evaluate({ x: x0 + h });
+      const yLeft = expression.evaluate({ x: x0 - h, y: 0, t: currentTime });
+      const yRight = expression.evaluate({ x: x0 + h, y: 0, t: currentTime });
 
       if (!Number.isFinite(yLeft) || !Number.isFinite(yRight)) {
         warn(args, `tangent derivative could not be estimated at x=${x0}.`);
@@ -324,9 +325,10 @@ export const normalSourcePrimitive: SourcePrimitive = {
 
     try {
       const expression = compileMathExpression(expressionSource);
+      const currentTime = context.time;
 
       const x0 = resolveNumber(tokens[atIndex + 1], context, 0);
-      const y0 = expression.evaluate({ x: x0 });
+      const y0 = expression.evaluate({ x: x0, y: 0, t: currentTime });
 
       if (!Number.isFinite(y0)) {
         warn(args, `normal value is not finite at x=${x0}.`);
@@ -334,8 +336,8 @@ export const normalSourcePrimitive: SourcePrimitive = {
       }
 
       const h = parseNamedNumber(tokens, "h", context, 1e-4);
-      const yLeft = expression.evaluate({ x: x0 - h });
-      const yRight = expression.evaluate({ x: x0 + h });
+      const yLeft = expression.evaluate({ x: x0 - h, y: 0, t: currentTime });
+      const yRight = expression.evaluate({ x: x0 + h, y: 0, t: currentTime });
 
       if (!Number.isFinite(yLeft) || !Number.isFinite(yRight)) {
         warn(args, `normal derivative could not be estimated at x=${x0}.`);
@@ -556,6 +558,7 @@ export const secantSourcePrimitive: SourcePrimitive = {
 
     try {
       const expression = compileMathExpression(expressionSource);
+      const currentTime = context.time;
 
       const x1 = resolveNumber(tokens[fromIndex + 1], context, 0);
       const x2 = resolveNumber(tokens[toIndex + 1], context, 1);
@@ -565,8 +568,8 @@ export const secantSourcePrimitive: SourcePrimitive = {
         return;
       }
 
-      const y1 = expression.evaluate({ x: x1 });
-      const y2 = expression.evaluate({ x: x2 });
+      const y1 = expression.evaluate({ x: x1, y: 0, t: currentTime });
+      const y2 = expression.evaluate({ x: x2, y: 0, t: currentTime });
 
       if (!Number.isFinite(y1) || !Number.isFinite(y2)) {
         warn(args, `secant values are not finite at x=${x1} or x=${x2}.`);

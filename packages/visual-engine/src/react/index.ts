@@ -3,6 +3,7 @@
 export { MethodScene } from "./MethodScene";
 export { IntegrationScene } from "./IntegrationScene";
 export { MultiIntegralScene } from "./MultiIntegralScene";
+export { PdeScene } from "./PdeScene";
 export { VisualScene } from "./VisualScene";
 export { VisualViewportControls } from "./VisualViewportControls";
 
@@ -24,6 +25,10 @@ export type {
 export type {
   MultiIntegralSceneProps,
 } from "./MultiIntegralScene";
+
+export type {
+  PdeSceneProps,
+} from "./PdeScene";
 
 export type {
   VisualSceneProps,

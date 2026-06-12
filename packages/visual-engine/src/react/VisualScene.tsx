@@ -38,7 +38,10 @@ type Runtime = {
   content: THREE.Group;
   observer: ResizeObserver;
   frameId: number;
+  lastRenderTime: number;
 };
+
+const PREVIEW_RENDER_INTERVAL_MS = 1000 / 30;
 
 export function VisualScene({
   spec,
@@ -70,7 +73,7 @@ export function VisualScene({
       powerPreference: "high-performance",
     });
 
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = spec.style.exposure ?? 1.22;
@@ -116,6 +119,7 @@ export function VisualScene({
       content,
       observer,
       frameId: 0,
+      lastRenderTime: 0,
     };
 
     runtimeRef.current = runtime;
@@ -129,13 +133,17 @@ export function VisualScene({
     observer.observe(mount);
     resize(runtime);
 
-    const render = () => {
-      controls.update();
-      renderer.render(scene, camera);
+    const render = (now: number) => {
+      if (now - runtime.lastRenderTime >= PREVIEW_RENDER_INTERVAL_MS) {
+        controls.update();
+        renderer.render(scene, camera);
+        runtime.lastRenderTime = now;
+      }
+
       runtime.frameId = requestAnimationFrame(render);
     };
 
-    render();
+    runtime.frameId = requestAnimationFrame(render);
 
     return () => {
       cancelAnimationFrame(runtime.frameId);

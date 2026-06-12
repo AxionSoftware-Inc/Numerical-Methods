@@ -169,11 +169,21 @@ export type ObjectRevealTrackSpec = ObjectTrackBase & {
   easing?: EasingId;
 };
 
+export type ObjectDrawTrackSpec = ObjectTrackBase & {
+  kind: "draw";
+  from: number;
+  to: number;
+  startTime: VideoTime;
+  endTime: VideoTime;
+  easing?: EasingId;
+};
+
 export type ObjectTrackSpec =
   | ObjectSpinTrackSpec
   | ObjectKeyframeTrackSpec
   | ObjectFadeTrackSpec
-  | ObjectRevealTrackSpec;
+  | ObjectRevealTrackSpec
+  | ObjectDrawTrackSpec;
 
 export type VideoFrameSpec = {
   frame: VideoFrameIndex;

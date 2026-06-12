@@ -2,16 +2,18 @@
 
 import {
   buildEnergyProjectionSegments,
+  buildPdeTrace,
   buildStabilityScan,
   buildTrace,
+  createCustomThetaPdeMethod,
   createEnergyCorrectedEulerMethod,
   energyCorrectedEulerCode,
   format,
   oscillatorEnergy,
 } from "@methodslab/methods-engine/core";
-import { examples, methods } from "@methodslab/methods-engine/presets";
-import { MethodScene } from "@methodslab/visual-engine/react";
-import type { EnergySample, ExampleId, ExampleSpec, LayerSpec, MethodId, StabilityScanTrace } from "@methodslab/methods-engine/core";
+import { examples, methods, pdeExamples, pdeMethods } from "@methodslab/methods-engine/presets";
+import { MethodScene, PdeScene } from "@methodslab/visual-engine/react";
+import type { EnergySample, ExampleId, ExampleSpec, LayerSpec, MethodId, PdeExampleId, PdeMethodId, StabilityScanTrace } from "@methodslab/methods-engine/core";
 import IntegralLab from "./integral-lab";
 import {
   Activity,
@@ -27,6 +29,8 @@ import {
   ScanSearch,
   Sparkles,
   Sigma,
+  Thermometer,
+  Braces,
   TrendingUp,
   Waves,
   Zap,
@@ -42,19 +46,27 @@ type EnergyGraphSeries = {
 };
 
 const overlayMethodIds = new Set<MethodId>(["euler", "rk4", "symplectic"]);
-type LabMode = "ode" | "integral";
+type LabMode = "ode" | "integral" | "pde" | "custom";
 
 export default function MethodLab() {
   const [labMode, setLabMode] = useState<LabMode>("integral");
 
   if (labMode === "integral") {
-    return <IntegralLab onSwitchToOde={() => setLabMode("ode")} />;
+    return <IntegralLab onSwitchToOde={() => setLabMode("ode")} onSwitchToPde={() => setLabMode("pde")} onSwitchToCustom={() => setLabMode("custom")} />;
   }
 
-  return <OdeLab onSwitchToIntegral={() => setLabMode("integral")} />;
+  if (labMode === "pde") {
+    return <PdeLab onSwitchToIntegral={() => setLabMode("integral")} onSwitchToOde={() => setLabMode("ode")} onSwitchToCustom={() => setLabMode("custom")} />;
+  }
+
+  if (labMode === "custom") {
+    return <CustomLab onOpenMode={setLabMode} />;
+  }
+
+  return <OdeLab onSwitchToIntegral={() => setLabMode("integral")} onSwitchToPde={() => setLabMode("pde")} onSwitchToCustom={() => setLabMode("custom")} />;
 }
 
-function OdeLab({ onSwitchToIntegral }: { onSwitchToIntegral: () => void }) {
+function OdeLab({ onSwitchToIntegral, onSwitchToPde, onSwitchToCustom }: { onSwitchToIntegral: () => void; onSwitchToPde: () => void; onSwitchToCustom: () => void }) {
   const [methodId, setMethodId] = useState<MethodId>("euler");
   const [exampleId, setExampleId] = useState<ExampleId>("oscillator");
   const [showField, setShowField] = useState(true);
@@ -217,6 +229,22 @@ function OdeLab({ onSwitchToIntegral }: { onSwitchToIntegral: () => void }) {
               Integral
             </button>
           </div>
+          <button
+            type="button"
+            onClick={onSwitchToPde}
+            className="mt-2 flex h-9 w-full items-center justify-center gap-2 rounded border border-[#cfd9dd] bg-white px-3 text-sm font-medium hover:bg-[#eef4f5]"
+          >
+            <Thermometer size={16} />
+            PDE
+          </button>
+          <button
+            type="button"
+            onClick={onSwitchToCustom}
+            className="mt-2 flex h-9 w-full items-center justify-center gap-2 rounded border border-[#cfd9dd] bg-white px-3 text-sm font-medium hover:bg-[#eef4f5]"
+          >
+            <Sparkles size={16} />
+            Custom
+          </button>
 
           <div className="mt-6 space-y-5">
             <div className="rounded border border-[#dce4e7] bg-white p-4">
@@ -417,6 +445,330 @@ function OdeLab({ onSwitchToIntegral }: { onSwitchToIntegral: () => void }) {
       </section>
     </main>
   );
+}
+
+function PdeLab({ onSwitchToIntegral, onSwitchToOde, onSwitchToCustom }: { onSwitchToIntegral: () => void; onSwitchToOde: () => void; onSwitchToCustom: () => void }) {
+  const [methodId, setMethodId] = useState<PdeMethodId>("ftcs");
+  const [exampleId, setExampleId] = useState<PdeExampleId>("heated-string");
+  const [theta, setTheta] = useState(0.5);
+  const [cellsByExample, setCellsByExample] = useState<Record<string, number>>({
+    "heated-string": pdeExamples[0].defaultCells,
+    "double-bump": pdeExamples[1].defaultCells,
+  });
+  const [timeStepsByExample, setTimeStepsByExample] = useState<Record<string, number>>({
+    "heated-string": pdeExamples[0].defaultTimeSteps,
+    "double-bump": pdeExamples[1].defaultTimeSteps,
+  });
+
+  const example = pdeExamples.find((item) => item.id === exampleId)!;
+  const presetMethod = pdeMethods.find((item) => item.id === methodId);
+  const customMethod = useMemo(() => createCustomThetaPdeMethod(theta), [theta]);
+  const method = presetMethod ?? customMethod;
+  const cells = cellsByExample[exampleId];
+  const timeSteps = timeStepsByExample[exampleId];
+  const trace = useMemo(() => buildPdeTrace(method, example, cells, timeSteps), [cells, example, method, timeSteps]);
+  const lastError = trace.errors.at(-1);
+
+  return (
+    <main className="h-screen overflow-hidden bg-[#f4f7f8] text-[#152026]">
+      <section className="grid h-screen grid-rows-[minmax(0,52vh)_minmax(0,48vh)] overflow-hidden lg:grid-cols-[430px_1fr] lg:grid-rows-1">
+        <aside className="order-2 min-h-0 overflow-y-auto border-t border-[#d8e0e3] bg-[#fbfcfc] p-5 lg:order-1 lg:h-screen lg:border-r lg:border-t-0">
+          <div className="flex items-center gap-3">
+            <div className="flex size-10 items-center justify-center rounded bg-[#14222b] text-white">
+              <Thermometer size={21} />
+            </div>
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.12em] text-[#5c717c]">MethodsLab Visualizer</p>
+              <h1 className="text-2xl font-semibold">{method.name} PDE laboratoriyasi</h1>
+            </div>
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={onSwitchToOde}
+              className="flex h-9 items-center justify-center gap-2 rounded border border-[#cfd9dd] bg-white px-3 text-sm font-medium hover:bg-[#eef4f5]"
+            >
+              <Box size={16} />
+              ODE
+            </button>
+            <button
+              type="button"
+              onClick={onSwitchToIntegral}
+              className="flex h-9 items-center justify-center gap-2 rounded border border-[#cfd9dd] bg-white px-3 text-sm font-medium hover:bg-[#eef4f5]"
+            >
+              <Sigma size={16} />
+              Integral
+            </button>
+            <button type="button" className="flex h-9 items-center justify-center gap-2 rounded bg-[#14222b] px-3 text-sm font-medium text-white">
+              <Thermometer size={16} />
+              PDE
+            </button>
+            <button
+              type="button"
+              onClick={onSwitchToCustom}
+              className="flex h-9 items-center justify-center gap-2 rounded border border-[#cfd9dd] bg-white px-3 text-sm font-medium hover:bg-[#eef4f5]"
+            >
+              <Sparkles size={16} />
+              Custom
+            </button>
+          </div>
+
+          <div className="mt-6 space-y-5">
+            <div className="rounded border border-[#dce4e7] bg-white p-4">
+              <div className="text-sm font-semibold text-[#31424b]">Metod</div>
+              <div className="mt-3 grid grid-cols-1 gap-2">
+                {pdeMethods.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setMethodId(item.id)}
+                    className={`min-h-10 rounded border px-3 text-left text-sm font-medium ${
+                      item.id === methodId ? "border-[#14222b] bg-[#14222b] text-white" : "border-[#cfd9dd] bg-white hover:bg-[#eef4f5]"
+                    }`}
+                  >
+                    {item.name}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setMethodId("custom-theta")}
+                  className={`min-h-10 rounded border px-3 text-left text-sm font-medium ${
+                    methodId === "custom-theta" ? "border-[#ea580c] bg-[#ea580c] text-white" : "border-[#cfd9dd] bg-white hover:bg-[#eef4f5]"
+                  }`}
+                >
+                  Custom theta method
+                </button>
+              </div>
+            </div>
+
+            <div className="rounded border border-[#dce4e7] bg-white p-4">
+              <div className="text-sm font-semibold text-[#31424b]">PDE misoli</div>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                {pdeExamples.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setExampleId(item.id)}
+                    className={`min-h-10 rounded border px-3 text-left text-sm font-medium ${
+                      item.id === exampleId ? "border-[#0f766e] bg-[#0f766e] text-white" : "border-[#cfd9dd] bg-white hover:bg-[#eef4f5]"
+                    }`}
+                  >
+                    {item.shortName}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {methodId === "custom-theta" ? (
+              <div className="rounded border border-[#dce4e7] bg-white p-4">
+                <label htmlFor="theta" className="flex items-center justify-between text-sm font-semibold text-[#31424b]">
+                  Theta
+                  <span className="font-mono text-[#ea580c]">{theta.toFixed(2)}</span>
+                </label>
+                <input
+                  id="theta"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={theta}
+                  onChange={(event) => setTheta(Number(event.target.value))}
+                  className="mt-4 w-full accent-[#ea580c]"
+                />
+                <p className="mt-3 text-sm leading-6 text-[#50626b]">
+                  `0` explicit FTCS tomoni, `0.5` Crank-Nicolson, `1` backward-Euler tomoni.
+                </p>
+              </div>
+            ) : null}
+
+            <div className="rounded border border-[#dce4e7] bg-white p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-[#31424b]">
+                <Activity size={17} />
+                PDE modeli
+              </div>
+              <div className="mt-3 space-y-2 font-mono text-[13px] leading-6 text-[#20303a]">
+                <p>{example.equation}</p>
+                <p>{method.formula}</p>
+                <p>{method.stability}</p>
+              </div>
+            </div>
+
+            <div className="rounded border border-[#dce4e7] bg-white p-4">
+              <label htmlFor="cells" className="flex items-center justify-between text-sm font-semibold text-[#31424b]">
+                Spatial cells
+                <span className="font-mono text-[#0f766e]">{cells}</span>
+              </label>
+              <input
+                id="cells"
+                type="range"
+                min={example.minCells}
+                max={example.maxCells}
+                step="1"
+                value={cells}
+                onChange={(event) => setCellsByExample((current) => ({ ...current, [exampleId]: Number(event.target.value) }))}
+                className="mt-4 w-full accent-[#0f766e]"
+              />
+
+              <label htmlFor="timesteps" className="mt-4 flex items-center justify-between text-sm font-semibold text-[#31424b]">
+                Time steps
+                <span className="font-mono text-[#a21caf]">{timeSteps}</span>
+              </label>
+              <input
+                id="timesteps"
+                type="range"
+                min={example.minTimeSteps}
+                max={example.maxTimeSteps}
+                step="1"
+                value={timeSteps}
+                onChange={(event) => setTimeStepsByExample((current) => ({ ...current, [exampleId]: Number(event.target.value) }))}
+                className="mt-4 w-full accent-[#a21caf]"
+              />
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <Metric label="r" value={trace.r.toFixed(3)} />
+              <Metric label="Final L2" value={lastError ? lastError.l2.toExponential(2) : "0"} />
+              <Metric label="Final L∞" value={lastError ? lastError.linf.toExponential(2) : "0"} />
+            </div>
+
+            <div className="rounded border border-[#dce4e7] bg-white p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-[#31424b]">
+                <Code2 size={17} />
+                Nima ko&apos;ryapmiz
+              </div>
+              <p className="mt-3 text-sm leading-6 text-[#50626b]">{method.geometry}</p>
+              <p className="mt-3 text-sm leading-6 text-[#50626b]">{example.interpretation}</p>
+            </div>
+          </div>
+        </aside>
+
+        <div className="order-1 min-h-0 overflow-hidden bg-[#021017] lg:order-2">
+          <PdeScene className="h-full w-full" trace={trace} />
+        </div>
+      </section>
+    </main>
+  );
+}
+
+type CustomSuggestion = {
+  mode: LabMode;
+  title: string;
+  visual: string;
+  reason: string;
+  method: string;
+};
+
+function CustomLab({ onOpenMode }: { onOpenMode: (mode: LabMode) => void }) {
+  const [formula, setFormula] = useState("u_t = 0.12 u_xx\nu(x,0)=sin(pi x)\nu(0,t)=u(1,t)=0");
+  const suggestion = useMemo(() => suggestVisualizer(formula), [formula]);
+
+  return (
+    <main className="h-screen overflow-hidden bg-[#f4f7f8] text-[#152026]">
+      <section className="grid h-screen grid-rows-[minmax(0,52vh)_minmax(0,48vh)] overflow-hidden lg:grid-cols-[430px_1fr] lg:grid-rows-1">
+        <aside className="order-2 min-h-0 overflow-y-auto border-t border-[#d8e0e3] bg-[#fbfcfc] p-5 lg:order-1 lg:h-screen lg:border-r lg:border-t-0">
+          <div className="flex items-center gap-3">
+            <div className="flex size-10 items-center justify-center rounded bg-[#14222b] text-white">
+              <Braces size={21} />
+            </div>
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.12em] text-[#5c717c]">MethodsLab Custom</p>
+              <h1 className="text-2xl font-semibold">Custom metod/formula</h1>
+            </div>
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <button type="button" onClick={() => onOpenMode("ode")} className="flex h-9 items-center justify-center gap-2 rounded border border-[#cfd9dd] bg-white px-3 text-sm font-medium hover:bg-[#eef4f5]"><Box size={16} />ODE</button>
+            <button type="button" onClick={() => onOpenMode("integral")} className="flex h-9 items-center justify-center gap-2 rounded border border-[#cfd9dd] bg-white px-3 text-sm font-medium hover:bg-[#eef4f5]"><Sigma size={16} />Integral</button>
+            <button type="button" onClick={() => onOpenMode("pde")} className="flex h-9 items-center justify-center gap-2 rounded border border-[#cfd9dd] bg-white px-3 text-sm font-medium hover:bg-[#eef4f5]"><Thermometer size={16} />PDE</button>
+            <button type="button" className="flex h-9 items-center justify-center gap-2 rounded bg-[#14222b] px-3 text-sm font-medium text-white"><Sparkles size={16} />Custom</button>
+          </div>
+
+          <div className="mt-6 space-y-5">
+            <div className="rounded border border-[#dce4e7] bg-white p-4">
+              <div className="text-sm font-semibold text-[#31424b]">Formula yoki metod yozing</div>
+              <textarea
+                value={formula}
+                onChange={(event) => setFormula(event.target.value)}
+                spellCheck={false}
+                className="mt-3 h-44 w-full resize-none rounded border border-[#cfd9dd] bg-[#071115] p-3 font-mono text-sm leading-6 text-[#d7e3ea] outline-none focus:border-[#0f766e]"
+              />
+              <p className="mt-3 text-sm leading-6 text-[#50626b]">
+                Birinchi versiyada tizim formulani o‘qib, mos vizual oilani tanlaydi: trajectory, quadrature yoki heatmap/profile.
+              </p>
+            </div>
+
+            <div className="rounded border border-[#dce4e7] bg-white p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-[#31424b]">
+                <ScanSearch size={17} />
+                Avtomatik tanlov
+              </div>
+              <div className="mt-3 space-y-2 text-sm leading-6 text-[#20303a]">
+                <p><span className="font-semibold">Tur:</span> {suggestion.title}</p>
+                <p><span className="font-semibold">Vizual:</span> {suggestion.visual}</p>
+                <p><span className="font-semibold">Tavsiya metod:</span> {suggestion.method}</p>
+                <p><span className="font-semibold">Sabab:</span> {suggestion.reason}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onOpenMode(suggestion.mode)}
+                className="mt-4 flex h-10 w-full items-center justify-center gap-2 rounded bg-[#14222b] px-3 text-sm font-medium text-white"
+              >
+                <Sparkles size={16} />
+                {suggestion.title} visualizer&apos;ga o&apos;tish
+              </button>
+            </div>
+          </div>
+        </aside>
+
+        <div className="order-1 min-h-0 overflow-hidden bg-[#021017] p-6 lg:order-2">
+          <div className="grid h-full gap-4 lg:grid-cols-2">
+            <div className="rounded border border-[#17313a] bg-[#03161d] p-5">
+              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#7ea0ad]">Detected family</div>
+              <div className="mt-3 text-3xl font-semibold text-white">{suggestion.title}</div>
+              <p className="mt-4 text-sm leading-7 text-[#9fb3bb]">{suggestion.reason}</p>
+            </div>
+            <div className="rounded border border-[#17313a] bg-[#071922] p-5">
+              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#7ea0ad]">Planned visual</div>
+              <div className="mt-3 text-xl font-semibold text-white">{suggestion.visual}</div>
+              <div className="mt-4 rounded border border-[#17313a] bg-black/30 p-4 font-mono text-sm leading-6 text-[#d7e3ea] whitespace-pre-wrap">
+                {formula}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function suggestVisualizer(input: string): CustomSuggestion {
+  const source = input.toLowerCase();
+  if (source.includes("u_t") || source.includes("u_xx") || source.includes("partial") || source.includes("∂")) {
+    return {
+      mode: "pde",
+      title: "PDE",
+      visual: "space-time heatmap + final profile + error curve",
+      reason: "Formulada vaqt bo‘yicha va fazo bo‘yicha hosilalar bor, demak bu evolyutsion maydon.",
+      method: "Crank-Nicolson yoki FTCS",
+    };
+  }
+  if (source.includes("int") || source.includes("∫") || source.includes("dA".toLowerCase()) || source.includes("dv")) {
+    return {
+      mode: "integral",
+      title: "Integral",
+      visual: "panels / surface mesh / volume columns",
+      reason: "Matnda integral operatori yoki o‘lchov elementi ko‘rindi, demak yig‘indi-geometriya vizuali kerak.",
+      method: "Simpson yoki Trapezoid",
+    };
+  }
+  return {
+    mode: "ode",
+    title: "ODE",
+    visual: "trajectory + vector field + stage lens",
+    reason: "Ko‘rinishidan bu differensial oqim yoki step-by-step trajectory oilasiga yaqin.",
+    method: "RK4 yoki Symplectic Euler",
+  };
 }
 
 function ToggleButton({ active, icon, label, onClick }: { active: boolean; icon: ReactNode; label: string; onClick: () => void }) {

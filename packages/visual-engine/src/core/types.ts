@@ -59,6 +59,7 @@ export type VisualTransformSpec = {
    */
   opacity?: number;
   revealProgress?: number;
+  drawProgress?: number;
 
   /**
    * Used by animation/video layers.

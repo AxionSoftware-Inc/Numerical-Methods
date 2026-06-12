@@ -61,6 +61,9 @@ export function sampleObjectTrack(
 
     case "reveal":
       return sampleRevealTrack(track, time);
+
+    case "draw":
+      return sampleDrawTrack(track, time);
   }
 }
 
@@ -134,6 +137,32 @@ function sampleRevealTrack(
 
   return {
     revealProgress: track.from + (track.to - track.from) * progress,
+    mode: track.mode ?? "absolute",
+  };
+}
+
+function sampleDrawTrack(
+  track: Extract<ObjectTrackSpec, { kind: "draw" }>,
+  time: number,
+): VisualTransformSpec | null {
+  if (time < track.startTime) {
+    return {
+      drawProgress: track.from,
+      mode: track.mode ?? "absolute",
+    };
+  }
+
+  if (time > track.endTime) {
+    return {
+      drawProgress: track.to,
+      mode: track.mode ?? "absolute",
+    };
+  }
+
+  const progress = ease(normalizeTime(time, track.startTime, track.endTime), track.easing ?? "linear");
+
+  return {
+    drawProgress: track.from + (track.to - track.from) * progress,
     mode: track.mode ?? "absolute",
   };
 }

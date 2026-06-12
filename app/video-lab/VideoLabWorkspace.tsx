@@ -573,11 +573,11 @@ function withTwoDimensionalCamera(scene: VisualSceneSpec): VisualSceneSpec {
     ...withBlackViewport(scene),
     camera: {
       ...scene.camera,
-      position: [0, 0.865, 5.2],
-      target: [0, 0.865, 0],
+      position: [0, 0, 5.6],
+      target: [0, 0, 0],
       fov: 34,
       projection: "orthographic",
-      orthographicSize: 3.45,
+      orthographicSize: 3.1,
       minDistance: 1.5,
       maxDistance: 16,
       near: 0.01,
@@ -587,7 +587,23 @@ function withTwoDimensionalCamera(scene: VisualSceneSpec): VisualSceneSpec {
 }
 
 function initialViewModeForCode(code: string): ViewMode {
-  return /\bcamera\s+preset\s+(2d|front)\b/.test(code) ? "2d" : "3d";
+  if (/\bcamera\s+preset\s+(2d|front)\b/.test(code)) {
+    return "2d";
+  }
+
+  if (/\bcamera\s+(orbit|preset\s+(surface|field|top|close))\b/.test(code)) {
+    return "3d";
+  }
+
+  if (/\b(surface|wave_surface|riemann|plane|box|electric_field)\b/.test(code)) {
+    return "3d";
+  }
+
+  if (/\b(graph|area|number_line|wave|interference|tangent|normal|secant|field|particle|trajectory)\b/.test(code)) {
+    return "2d";
+  }
+
+  return "3d";
 }
 
 function exportSize(quality: ExportQuality): { width: number; height: number } {

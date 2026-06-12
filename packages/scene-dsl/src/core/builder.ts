@@ -148,6 +148,7 @@ export class MathSceneBuilder implements SceneBuilderApi {
       xLabel?: string;
       yLabel?: string;
       zLabel?: string;
+      showZ?: boolean;
       color?: string;
       name?: string;
     } = {},
@@ -164,6 +165,7 @@ export class MathSceneBuilder implements SceneBuilderApi {
       xLabel: options.xLabel,
       yLabel: options.yLabel,
       zLabel: options.zLabel,
+      showZ: options.showZ,
       color: options.color,
     }) as SceneObjectRef<"axes">;
   }
@@ -175,6 +177,7 @@ export class MathSceneBuilder implements SceneBuilderApi {
       size?: number;
       divisions?: number;
       y?: number;
+      plane?: "xy" | "xz" | "yz";
       color?: string;
       opacity?: number;
       name?: string;
@@ -190,6 +193,7 @@ export class MathSceneBuilder implements SceneBuilderApi {
       size: options.size,
       divisions: options.divisions,
       y: options.y,
+      plane: options.plane,
       color: options.color,
       opacity: options.opacity,
     }) as SceneObjectRef<"grid">;

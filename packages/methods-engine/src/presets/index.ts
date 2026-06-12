@@ -1,6 +1,7 @@
 import { addScaled } from "../core";
 import type { ExampleSpec, MethodSpec } from "../core";
 export { integrationExamples, integrationMethods, surfaceIntegralExamples, volumeIntegralExamples } from "./integration";
+export { pdeExamples, pdeMethods } from "./pde";
 
 const stageColors = ["#f0e442", "#009e73", "#cc79a7", "#d55e00"];
 

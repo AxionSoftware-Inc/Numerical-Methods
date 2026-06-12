@@ -127,6 +127,7 @@ export function sampleTransformKeyframes(
     pivot: to.transform.pivot ?? from.transform.pivot,
     opacity: lerpOptionalNumber(from.transform.opacity, to.transform.opacity, t),
     revealProgress: lerpOptionalNumber(from.transform.revealProgress, to.transform.revealProgress, t),
+    drawProgress: lerpOptionalNumber(from.transform.drawProgress, to.transform.drawProgress, t),
     mode: to.transform.mode ?? from.transform.mode,
   };
 }
@@ -225,6 +226,7 @@ export function composeTransform(
       pivot: next.pivot ?? base?.pivot,
       opacity: next.opacity ?? base?.opacity,
       revealProgress: next.revealProgress ?? base?.revealProgress,
+      drawProgress: next.drawProgress ?? base?.drawProgress,
       mode,
     };
   }
@@ -236,6 +238,7 @@ export function composeTransform(
     pivot: next.pivot ?? base?.pivot,
     opacity: next.opacity ?? base?.opacity,
     revealProgress: next.revealProgress ?? base?.revealProgress,
+    drawProgress: next.drawProgress ?? base?.drawProgress,
     mode,
   };
 }

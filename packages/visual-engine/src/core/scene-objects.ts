@@ -25,6 +25,7 @@ export type AxesLayerOptions = {
   origin?: VisualVec3;
   size?: number;
   showLabels?: boolean;
+  showZ?: boolean;
   xLabel?: string;
   yLabel?: string;
   zLabel?: string;
@@ -98,6 +99,7 @@ export function createCoordinateAxesLayers(options: AxesLayerOptions = {}): Visu
     xLabel = "x",
     yLabel = "y",
     zLabel = "z",
+    showZ = true,
     color = "#cbd5e1",
     xColor = "#38bdf8",
     yColor = "#fde047",
@@ -109,24 +111,31 @@ export function createCoordinateAxesLayers(options: AxesLayerOptions = {}): Visu
   const xEnd: VisualVec3 = [x + size, y, z];
   const yEnd: VisualVec3 = [x, y + size, z];
   const zEnd: VisualVec3 = [x, y, z + size];
+  const segments = [
+    { from: origin, to: xEnd },
+    { from: origin, to: yEnd },
+  ];
+
+  if (showZ) {
+    segments.push({ from: origin, to: zEnd });
+  }
 
   const layers: VisualLayerSpec[] = [
     {
       kind: "lines",
       id: `${idPrefix}-lines`,
       objectId,
-      segments: [
-        { from: origin, to: xEnd },
-        { from: origin, to: yEnd },
-        { from: origin, to: zEnd },
-      ],
+      segments,
       color,
       opacity,
     },
     createArrowLayer(`${idPrefix}-x-arrow`, origin, xEnd, xColor, { objectId, opacity }),
     createArrowLayer(`${idPrefix}-y-arrow`, origin, yEnd, yColor, { objectId, opacity }),
-    createArrowLayer(`${idPrefix}-z-arrow`, origin, zEnd, zColor, { objectId, opacity }),
   ];
+
+  if (showZ) {
+    layers.push(createArrowLayer(`${idPrefix}-z-arrow`, origin, zEnd, zColor, { objectId, opacity }));
+  }
 
   if (!showLabels) return layers;
 
@@ -139,11 +148,16 @@ export function createCoordinateAxesLayers(options: AxesLayerOptions = {}): Visu
       objectId,
       scale: 0.09,
     }),
-    createLabelLayer(`${idPrefix}-z-label`, zLabel, [x, y, z + size + 0.08], zColor, {
-      objectId,
-      scale: 0.09,
-    }),
   );
+
+  if (showZ) {
+    layers.push(
+      createLabelLayer(`${idPrefix}-z-label`, zLabel, [x, y, z + size + 0.08], zColor, {
+        objectId,
+        scale: 0.09,
+      }),
+    );
+  }
 
   return layers;
 }

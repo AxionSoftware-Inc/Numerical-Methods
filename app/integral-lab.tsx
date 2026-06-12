@@ -17,34 +17,38 @@ import type {
   SurfaceIntegralExampleId,
   VolumeIntegralExampleId,
 } from "@methodslab/methods-engine/core";
-import { AreaChart, BarChart3, Box, FunctionSquare, GitCompare, RotateCcw, ScanSearch, Sigma } from "lucide-react";
+import { AreaChart, BarChart3, Box, FunctionSquare, GitCompare, RotateCcw, ScanSearch, Sigma, Sparkles, Thermometer } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
 export type IntegralLabProps = {
   onSwitchToOde: () => void;
+  onSwitchToPde: () => void;
+  onSwitchToCustom: () => void;
 };
 
 type IntegralKind = "area" | "surface" | "volume";
 
-export default function IntegralLab({ onSwitchToOde }: IntegralLabProps) {
+export default function IntegralLab({ onSwitchToOde, onSwitchToPde, onSwitchToCustom }: IntegralLabProps) {
   const [integralKind, setIntegralKind] = useState<IntegralKind>("area");
 
   if (integralKind === "surface") {
-    return <SurfaceIntegralLab activeKind={integralKind} onSetKind={setIntegralKind} onSwitchToOde={onSwitchToOde} />;
+    return <SurfaceIntegralLab activeKind={integralKind} onSetKind={setIntegralKind} onSwitchToOde={onSwitchToOde} onSwitchToPde={onSwitchToPde} onSwitchToCustom={onSwitchToCustom} />;
   }
 
   if (integralKind === "volume") {
-    return <VolumeIntegralLab activeKind={integralKind} onSetKind={setIntegralKind} onSwitchToOde={onSwitchToOde} />;
+    return <VolumeIntegralLab activeKind={integralKind} onSetKind={setIntegralKind} onSwitchToOde={onSwitchToOde} onSwitchToPde={onSwitchToPde} onSwitchToCustom={onSwitchToCustom} />;
   }
 
-  return <AreaIntegralLab activeKind={integralKind} onSetKind={setIntegralKind} onSwitchToOde={onSwitchToOde} />;
+  return <AreaIntegralLab activeKind={integralKind} onSetKind={setIntegralKind} onSwitchToOde={onSwitchToOde} onSwitchToPde={onSwitchToPde} onSwitchToCustom={onSwitchToCustom} />;
 }
 
 function AreaIntegralLab({
   activeKind,
   onSetKind,
   onSwitchToOde,
+  onSwitchToPde,
+  onSwitchToCustom,
 }: IntegralLabProps & { activeKind: IntegralKind; onSetKind: (kind: IntegralKind) => void }) {
   const [methodId, setMethodId] = useState<IntegrationMethodId>("trapezoid");
   const [exampleId, setExampleId] = useState<IntegrationExampleId>("smooth-wave");
@@ -107,6 +111,22 @@ function AreaIntegralLab({
             <button type="button" className="flex h-9 items-center justify-center gap-2 rounded bg-[#14222b] px-3 text-sm font-medium text-white">
               <Sigma size={16} />
               Integral
+            </button>
+            <button
+              type="button"
+              onClick={onSwitchToPde}
+              className="flex h-9 items-center justify-center gap-2 rounded border border-[#cfd9dd] bg-white px-3 text-sm font-medium hover:bg-[#eef4f5]"
+            >
+              <Thermometer size={16} />
+              PDE
+            </button>
+            <button
+              type="button"
+              onClick={onSwitchToCustom}
+              className="flex h-9 items-center justify-center gap-2 rounded border border-[#cfd9dd] bg-white px-3 text-sm font-medium hover:bg-[#eef4f5]"
+            >
+              <Sparkles size={16} />
+              Custom
             </button>
           </div>
 
@@ -249,6 +269,8 @@ function SurfaceIntegralLab({
   activeKind,
   onSetKind,
   onSwitchToOde,
+  onSwitchToPde,
+  onSwitchToCustom,
 }: IntegralLabProps & { activeKind: IntegralKind; onSetKind: (kind: IntegralKind) => void }) {
   const [exampleId, setExampleId] = useState<SurfaceIntegralExampleId>("surface-wave");
   const [showAnalysis, setShowAnalysis] = useState(true);
@@ -291,6 +313,8 @@ function SurfaceIntegralLab({
       onToggleAnalysis={() => setShowAnalysis((value) => !value)}
       onSetKind={onSetKind}
       onSwitchToOde={onSwitchToOde}
+      onSwitchToPde={onSwitchToPde}
+      onSwitchToCustom={onSwitchToCustom}
       rangeLabel={`mesh ${trace.resolution}x${trace.resolution}`}
       resolution={resolution}
       scene={<MultiIntegralScene className="absolute inset-0" kind="surface" showAnalysis={showAnalysis} trace={trace} />}
@@ -325,6 +349,8 @@ function VolumeIntegralLab({
   activeKind,
   onSetKind,
   onSwitchToOde,
+  onSwitchToPde,
+  onSwitchToCustom,
 }: IntegralLabProps & { activeKind: IntegralKind; onSetKind: (kind: IntegralKind) => void }) {
   const [exampleId, setExampleId] = useState<VolumeIntegralExampleId>("paraboloid-solid");
   const [showAnalysis, setShowAnalysis] = useState(true);
@@ -367,6 +393,8 @@ function VolumeIntegralLab({
       onToggleAnalysis={() => setShowAnalysis((value) => !value)}
       onSetKind={onSetKind}
       onSwitchToOde={onSwitchToOde}
+      onSwitchToPde={onSwitchToPde}
+      onSwitchToCustom={onSwitchToCustom}
       rangeLabel={`columns ${trace.resolution}x${trace.resolution}`}
       resolution={resolution}
       scene={<MultiIntegralScene className="absolute inset-0" kind="volume" showAnalysis={showAnalysis} trace={trace} />}
@@ -414,6 +442,8 @@ function MultiDimensionalIntegralLayout({
   onResolutionChange,
   onSetKind,
   onSwitchToOde,
+  onSwitchToPde,
+  onSwitchToCustom,
   onToggleAnalysis,
   rangeLabel,
   resolution,
@@ -469,6 +499,22 @@ function MultiDimensionalIntegralLayout({
             <button type="button" className="flex h-9 items-center justify-center gap-2 rounded bg-[#14222b] px-3 text-sm font-medium text-white">
               <Sigma size={16} />
               Integral
+            </button>
+            <button
+              type="button"
+              onClick={onSwitchToPde}
+              className="flex h-9 items-center justify-center gap-2 rounded border border-[#cfd9dd] bg-white px-3 text-sm font-medium hover:bg-[#eef4f5]"
+            >
+              <Thermometer size={16} />
+              PDE
+            </button>
+            <button
+              type="button"
+              onClick={onSwitchToCustom}
+              className="flex h-9 items-center justify-center gap-2 rounded border border-[#cfd9dd] bg-white px-3 text-sm font-medium hover:bg-[#eef4f5]"
+            >
+              <Sparkles size={16} />
+              Custom
             </button>
           </div>
 

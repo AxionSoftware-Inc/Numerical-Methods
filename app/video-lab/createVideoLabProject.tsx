@@ -17,6 +17,7 @@ import {
   transform,
   wait,
   write,
+  show,
 } from "@methodslab/scene-dsl/core";
 import {
   commandOf,
@@ -304,25 +305,33 @@ function parseCommand(context: VideoLabContext, tokens: string[], lineNumber: nu
   }
 
   if (command === "grid") {
+    const isTwoDimensional = isTwoDimensionalCamera(context);
+    const plane = parseNamedString(tokens, "plane", context, isTwoDimensional ? "xy" : "xz");
+
     context.scene.grid({
       id: parseNamedString(tokens, "id", context, "grid"),
       objectId: parseNamedString(tokens, "object", context, "grid"),
-      size: parseNamedNumber(tokens, "size", context, 3.2),
+      size: parseNamedNumber(tokens, "size", context, isTwoDimensional ? 3.8 : 3.2),
       divisions: Math.round(parseNamedNumber(tokens, "divisions", context, 18)),
-      y: parseNamedNumber(tokens, "y", context, -0.86),
-      opacity: parseNamedNumber(tokens, "opacity", context, 0.34),
+      y: parseNamedNumber(tokens, "y", context, isTwoDimensional ? 0 : -0.86),
+      plane: plane === "xy" || plane === "yz" ? plane : "xz",
+      opacity: parseNamedNumber(tokens, "opacity", context, isTwoDimensional ? 0.24 : 0.34),
       color: parseNamedColor(tokens, "color", context, "#164653"),
     });
     return;
   }
 
   if (command === "axes") {
+    const isTwoDimensional = isTwoDimensionalCamera(context);
+
     context.scene.axes({
       id: parseNamedString(tokens, "id", context, "axes"),
       objectId: parseNamedString(tokens, "object", context, "axes"),
       origin: parseNamedVec3(tokens, "origin", context, [0, 0, 0]),
-      size: parseNamedNumber(tokens, "size", context, 1.45),
-      yLabel: parseNamedString(tokens, "ylabel", context, "h"),
+      size: parseNamedNumber(tokens, "size", context, isTwoDimensional ? 1.9 : 1.45),
+      yLabel: parseNamedString(tokens, "ylabel", context, isTwoDimensional ? "y" : "h"),
+      zLabel: parseNamedString(tokens, "zlabel", context, "z"),
+      showZ: isTwoDimensional ? hasToken(tokens, "zaxis") : !hasToken(tokens, "noz"),
     });
     return;
   }
@@ -391,9 +400,7 @@ function parseCommand(context: VideoLabContext, tokens: string[], lineNumber: nu
     if (!target) return pushWarning(context, lineNumber, "show target missing");
 
     context.scene.play(
-      fadeIn(target, {
-        from: parseNamedNumber(tokens, "from", context, 0),
-        to: 1,
+      show(target, {
         duration: durationFromNaturalTokens(tokens, context, resolveDuration(tokens[2], context, 1)),
       }),
     );
@@ -563,6 +570,10 @@ function cameraSpecFromConfig(camera: CameraConfig): SceneCameraSpec {
     projection: camera.projection,
     orthographicSize: camera.orthographicSize,
   };
+}
+
+function isTwoDimensionalCamera(context: VideoLabContext): boolean {
+  return context.config.camera.projection === "orthographic";
 }
 
 function parseTextCommand(context: VideoLabContext, tokens: string[], lineNumber: number): void {
@@ -887,11 +898,11 @@ function resolveCameraPreset(name: string): {
   if (name === "2d" || name === "front") {
     return {
       camera: {
-        position: [0, 0, 5.2],
+        position: [0, 0, 5.6],
         target: [0, 0, 0],
         fov: 34,
         projection: "orthographic",
-        orthographicSize: 4,
+        orthographicSize: 3.1,
         minDistance: 1.5,
         maxDistance: 16,
       },

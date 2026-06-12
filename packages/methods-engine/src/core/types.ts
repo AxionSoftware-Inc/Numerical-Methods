@@ -209,3 +209,68 @@ export type EngineStyle = {
   gridMajor: string;
   gridMinor: string;
 };
+
+export type PdeMethodId = string;
+export type PdeExampleId = string;
+
+export type PdeMethodSpec = {
+  id: PdeMethodId;
+  name: string;
+  formula: string;
+  order: string;
+  color: string;
+  stability: string;
+  geometry: string;
+  theta: number;
+};
+
+export type PdeExampleSpec = {
+  id: PdeExampleId;
+  name: string;
+  shortName: string;
+  equation: string;
+  domain: [number, number];
+  endTime: number;
+  diffusivity: number;
+  defaultCells: number;
+  minCells: number;
+  maxCells: number;
+  defaultTimeSteps: number;
+  minTimeSteps: number;
+  maxTimeSteps: number;
+  initial: (x: number) => number;
+  exact: (x: number, t: number) => number;
+  interpretation: string;
+};
+
+export type PdeFrame = {
+  time: number;
+  values: number[];
+  exactValues: number[];
+  maxError: number;
+};
+
+export type PdeErrorSample = {
+  time: number;
+  l2: number;
+  linf: number;
+};
+
+export type PdeTrace = {
+  xs: number[];
+  frames: PdeFrame[];
+  errors: PdeErrorSample[];
+  cells: number;
+  timeSteps: number;
+  dt: number;
+  dx: number;
+  r: number;
+  valueRange: [number, number];
+  metadata: {
+    methodId: string;
+    methodName: string;
+    exampleId: string;
+    exampleName: string;
+    theta: number;
+  };
+};

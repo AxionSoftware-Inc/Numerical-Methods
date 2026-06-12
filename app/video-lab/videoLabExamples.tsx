@@ -46,7 +46,7 @@ wait 0.4s`,
 duration = 8
 fps = 30
 
-camera orbit radius 5.2 height 3.1 turns 0.42
+camera preset 2d
 
 title "Function Graph"
 subtitle "Sampled math primitives"
@@ -70,6 +70,184 @@ highlight s in 0.7s
 wait 0.5s`,
   },
   {
+    id: "sine-wave-story",
+    title: "Premium: Sine Wave Story",
+    description: "A single cohesive mini-lesson with five connected beats in one timeline.",
+    code: `scene "How Sine Waves Work"
+duration = 24
+fps = 30
+
+camera preset 2d
+
+main = cyan
+accent = yellow
+period = green
+slope = orange
+mixc = white
+
+crest_pos = [0.864, 0.55, 0.05]
+trough_pos = [-0.864, -0.55, 0.05]
+amp_from = [1.95, 0, 0.05]
+amp_to = [1.95, 0.55, 0.05]
+cycle_left = [-1.728, -1.2, 0.05]
+cycle_right = [1.728, -1.2, 0.05]
+
+title "How Sine Waves Work"
+subtitle "One graph, five ideas, one continuous scene"
+
+grid
+axes
+number_line phase from -pi to pi ticks 4 color slate y -1.22
+
+text ch1 = "1. A sine wave turns angle into height" at [-1.35, 1.02, 0.2] color white scale 0.16
+formula eq1 = "y=\\sin(x)" at [-1.08, 0.62, 0.2] color main scale 0.22
+
+text ch2 = "2. Amplitude is the peak distance from the center line" at [-1.35, 1.02, 0.2] color white scale 0.145
+formula eq2 = "\\max |y| = 1" at [-1.08, 0.62, 0.2] color accent scale 0.2
+
+text ch3 = "3. One full cycle runs from -\\pi to \\pi" at [-1.35, 1.02, 0.2] color white scale 0.15
+formula eq3 = "T = 2\\pi" at [-1.08, 0.62, 0.2] color period scale 0.2
+
+text ch4 = "4. The slope changes at every point on the wave" at [-1.35, 1.02, 0.2] color white scale 0.15
+formula eq4 = "\\frac{d}{dx}\\sin(x)=\\cos(x)" at [-1.08, 0.62, 0.2] color slope scale 0.18
+
+text ch5 = "5. Adding waves creates richer motion" at [-1.35, 1.02, 0.2] color white scale 0.16
+formula eq5 = "\\sin(x)+0.6\\sin(2x)" at [-1.08, 0.62, 0.2] color mixc scale 0.2
+
+graph base = sin(x) from -pi to pi color main
+point crest at crest_pos color accent label "crest"
+point trough at trough_pos color accent label "trough"
+arrow amp from amp_from to amp_to color accent
+text amp_note = "amplitude = 1" at [1.36, 0.34, 0.05] color accent scale 0.13
+
+path cycle points cycle_left cycle_right color period opacity 0.9
+point cycle_a at cycle_left color period radius 0.05
+point cycle_b at cycle_right color period radius 0.05
+text cycle_note = "one full cycle = 2\\pi" at [-0.62, -0.98, 0.05] color period scale 0.13
+
+tangent tan = sin(x) at 0.85 length 2.2 color slope point label "local slope"
+text slope_note = "near x = 0.85 the graph behaves almost like a line" at [-1.34, -1.48, 0.05] color slope scale 0.115
+
+wave w1 = sin(x) from -pi to pi amplitude 0.5 color main y 0.72
+wave w2 = 0.6*sin(2*x) from -pi to pi amplitude 0.34 color accent y 0
+interference mix a = sin(x) b = 0.6*sin(2*x) from -pi to pi color mixc amplitude 0.42 y -0.74
+text mix_note = "superposition bends the final waveform" at [-1.32, -1.48, 0.05] color mixc scale 0.12
+
+drop title from top in 0.8s
+fade phase in 0.6s
+write ch1 in 0.6s
+write eq1 in 0.8s
+fade base in 1s
+wait 0.6s
+fadeout ch1 in 0.4s
+fadeout eq1 in 0.4s
+
+write ch2 in 0.6s
+write eq2 in 0.7s
+fade crest in 0.5s
+fade trough in 0.5s
+fade amp in 0.6s
+fade amp_note in 0.6s
+highlight crest in 0.7s
+wait 0.8s
+fadeout ch2 in 0.4s
+fadeout eq2 in 0.4s
+fadeout amp in 0.4s
+fadeout amp_note in 0.4s
+
+write ch3 in 0.6s
+write eq3 in 0.7s
+fade cycle in 0.6s
+fade cycle_a in 0.4s
+fade cycle_b in 0.4s
+fade cycle_note in 0.6s
+highlight cycle in 0.7s
+wait 0.8s
+fadeout ch3 in 0.4s
+fadeout eq3 in 0.4s
+fadeout cycle in 0.4s
+fadeout cycle_a in 0.3s
+fadeout cycle_b in 0.3s
+fadeout cycle_note in 0.4s
+
+write ch4 in 0.6s
+write eq4 in 0.8s
+fade tan in 0.8s
+fade slope_note in 0.6s
+highlight tan in 0.8s
+wait 0.8s
+fadeout ch4 in 0.4s
+fadeout eq4 in 0.4s
+fadeout tan in 0.4s
+fadeout slope_note in 0.4s
+fadeout crest in 0.3s
+fadeout trough in 0.3s
+fadeout base in 0.5s
+
+write ch5 in 0.6s
+write eq5 in 0.8s
+fade w1 in 0.7s
+fade w2 in 0.7s
+fade mix in 0.9s
+fade mix_note in 0.6s
+highlight mix in 0.8s
+wait 1.4s`,
+  },
+  {
+    id: "derivative-2d",
+    title: "Derivative 2D",
+    description: "2D-ready graph, tangent, secant and highlighted point.",
+    code: `scene "Derivative 2D"
+duration = 8
+fps = 30
+
+camera preset 2d
+
+title "Derivative"
+subtitle "Graph, tangent and secant in a clean 2D layout"
+
+grid
+axes
+
+graph g = sin(x) from -pi to pi color cyan
+tangent tg = sin(x) at 0.85 length 2.2 color yellow point label "tangent"
+secant sc = sin(x) from -0.4 to 1.45 color green points label "secant"
+point p at [0.467, 0.752, 0.05] color white label "f(a)"
+
+write title in 0.7s
+show g from 0 in 0.9s
+show tg from 0 in 0.8s
+show sc from 0 in 0.8s
+highlight p in 0.6s
+wait 0.5s`,
+  },
+  {
+    id: "sine-cosine-2d",
+    title: "Sine + Cosine 2D",
+    description: "Clean orthographic trig scene centered for 2D math videos.",
+    code: `scene "Sine And Cosine"
+duration = 8
+fps = 30
+
+camera preset 2d
+
+title "Sine and Cosine"
+subtitle "2D orthographic layout ready for math videos"
+
+grid
+axes
+
+graph s = sin(x) from -pi to pi color cyan
+graph c = cos(x) from -pi to pi color yellow
+point p at [0, 1, 0] color white label "cos(0)"
+
+write title in 0.7s
+show s from 0 in 1s
+show c from 0 in 1s
+highlight p in 0.7s
+wait 0.6s`,
+  },
+  {
     id: "vector-field",
     title: "Vector Field",
     description: "Physics-style vector field, particle and circular orbit.",
@@ -77,7 +255,7 @@ wait 0.5s`,
 duration = 8
 fps = 30
 
-camera orbit radius 5.5 height 3.2 turns 0.45
+camera preset 2d
 
 title "Vector Field"
 subtitle "Rotational field around a particle"

@@ -1,9 +1,13 @@
 import {
+    type VideoLabVec3,
     parseNamedColor,
     parseNamedNumber,
     resolveNumber,
 } from "../../../values";
+import { compileMathExpression } from "../../math/expression";
 import {
+    expressionBetween,
+    firstStopIndex,
     tokenIndex,
     tokenRequired,
     warn,
@@ -15,6 +19,96 @@ type ElectricCharge = {
     y: number;
     z: number;
     q: number;
+};
+
+export const vectorFieldSourcePrimitive: SourcePrimitive = {
+    name: "field",
+    aliases: ["vector_field", "line_field", "point_field"],
+    category: "physics",
+    createsObject: true,
+    description: "2D vector field arrows from x/y component expressions.",
+    examples: [
+        `field F x = -t y = x range 2 step 1 color cyan`,
+        `point_field P x = -y y = x range 2 step 0.8 color yellow`,
+    ],
+    completions: [
+        {
+            label: "field",
+            insertText: "field ${1:F} x = ${2:-y} y = ${3:x} range ${4:2} step ${5:0.8} color ${6:cyan}",
+            detail: "Create vector field",
+        },
+    ],
+    reference: {
+        id: "field",
+        title: "Vector field",
+        description: "x/y komponent expressionlari asosida vector field arrow grid yaratadi.",
+        examples: [`field F x = -y y = x range 2 step 0.8 color cyan`],
+    },
+
+    compile(args) {
+        const { context, tokens } = args;
+        const id = tokens[1];
+        if (!id) return warn(args, "field id missing. Example: field F x = -y y = x.");
+
+        const xIndex = tokenIndex(tokens, "x");
+        const yIndex = tokenIndex(tokens, "y");
+        const xEquals = tokens.indexOf("=", xIndex);
+        const yEquals = tokens.indexOf("=", yIndex);
+
+        if (xIndex < 0 || yIndex < 0 || xEquals < 0 || yEquals < 0) {
+            return warn(args, "field needs x and y component expressions. Example: field F x = -y y = x.");
+        }
+
+        const stop = firstStopIndex(
+            tokens,
+            tokens.length,
+            "range",
+            "step",
+            "scale",
+            "color",
+            "opacity",
+            "mode",
+        );
+        const xExpression = compileMathExpression(expressionBetween(tokens, xEquals + 1, yIndex));
+        const yExpression = compileMathExpression(expressionBetween(tokens, yEquals + 1, stop));
+        const range = parseNamedNumber(tokens, "range", context, 2);
+        const step = Math.max(0.2, parseNamedNumber(tokens, "step", context, 0.8));
+        const scale = parseNamedNumber(tokens, "scale", context, 0.22);
+        const color = parseNamedColor(tokens, "color", context, "#67e8f9");
+        const opacity = parseNamedNumber(tokens, "opacity", context, 0.9);
+        const z = parseNamedNumber(tokens, "z", context, 0);
+        let arrowIndex = 0;
+
+        for (let x = -range; x <= range + 1e-9; x += step) {
+            for (let y = -range; y <= range + 1e-9; y += step) {
+                const dx = xExpression.evaluate({ x, y, t: context.time });
+                const dy = yExpression.evaluate({ x, y, t: context.time });
+                const magnitude = Math.hypot(dx, dy);
+                if (magnitude < 1e-8) continue;
+
+                const length = scale * Math.min(1.4, 0.45 + magnitude * 0.35);
+                const from: VideoLabVec3 = [x * 0.55, y * 0.55, z];
+                const to: VideoLabVec3 = [
+                    from[0] + (dx / magnitude) * length,
+                    from[1] + (dy / magnitude) * length,
+                    z,
+                ];
+
+                context.scene.arrow({
+                    id: `${id}-${arrowIndex}`,
+                    objectId: id,
+                    from,
+                    to,
+                    color,
+                    opacity,
+                    headSize: 0.07,
+                });
+                arrowIndex += 1;
+            }
+        }
+
+        if (arrowIndex === 0) warn(args, "field produced no arrows.");
+    },
 };
 
 export const electricFieldSourcePrimitive: SourcePrimitive = {
@@ -356,5 +450,6 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 export const FIELD_PRIMITIVES: SourcePrimitive[] = [
+    vectorFieldSourcePrimitive,
     electricFieldSourcePrimitive,
 ];

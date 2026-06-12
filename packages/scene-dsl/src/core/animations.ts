@@ -91,19 +91,27 @@ export function fadeOut(
   };
 }
 
-export function show(target: SceneAnimationTarget): SceneShowAnimation {
+export function show(
+  target: SceneAnimationTarget,
+  options: AnimationOptions = {},
+): SceneShowAnimation {
   return {
     kind: "show",
     target,
-    duration: 0,
+    duration: options.duration ?? 0.8,
+    easing: options.easing ?? "ease-out-cubic",
   };
 }
 
-export function hide(target: SceneAnimationTarget): SceneHideAnimation {
+export function hide(
+  target: SceneAnimationTarget,
+  options: AnimationOptions = {},
+): SceneHideAnimation {
   return {
     kind: "hide",
     target,
-    duration: 0,
+    duration: options.duration ?? 0.65,
+    easing: options.easing ?? "ease-in-cubic",
   };
 }
 
