@@ -301,6 +301,7 @@ export function createMarkerLayer(
     radius?: number;
     label?: string;
     labelOffset?: VisualVec3;
+    labelScale?: number;
     opacity?: number;
     renderOrder?: number;
     depthTest?: boolean;
@@ -316,6 +317,7 @@ export function createMarkerLayer(
     radius: options.radius ?? 0.042,
     label: options.label,
     labelOffset: options.labelOffset,
+    labelScale: options.labelScale,
     opacity: options.opacity,
     renderOrder: options.renderOrder,
     depthTest: options.depthTest,

@@ -1,8 +1,8 @@
-# MethodsLab
+# OperatorLab
 
-MethodsLab hozir ikki asosiy yo'nalishda ishlayapti:
+OperatorLab hozir ikki asosiy yo'nalishda ishlayapti:
 
-- `Analyzer` -> matematik metodlarni vizual tahlil qilish
+- `Analyzer` -> operatorlarni geometrik tahlil qilish
 - `Video Lab` -> shu vizual sahnalardan video/animatsiya sahna qurish
 
 ## Ishga tushirish
@@ -20,22 +20,22 @@ Brauzer:
 
 ## Routing
 
-- [app/page.tsx](/Users/i/Documents/methodslab/app/page.tsx)
+- [app/page.tsx](/Users/macbookpro/Documents/Numerical-Methods/app/page.tsx)
   - landing
-- [app/analyzer/page.tsx](/Users/i/Documents/methodslab/app/analyzer/page.tsx)
+- [app/analyzer/page.tsx](/Users/i/Documents/Numerical-Methods/app/analyzer/page.tsx)
   - analyzer entry
-- [app/video-lab/video-lab.tsx](/Users/i/Documents/methodslab/app/video-lab/video-lab.tsx)
+- [app/video-lab/page.tsx](/Users/i/Documents/Numerical-Methods/app/video-lab/page.tsx)
   - video lab UI, parser, preview orchestration
 
 ## Paketlar
 
-- [packages/visual-engine](/Users/i/Documents/methodslab/packages/visual-engine)
+- [packages/visual-engine](/Users/i/Documents/Numerical-Methods/packages/visual-engine)
   - 3D vizual sahna engine
-- [packages/video-engine](/Users/i/Documents/methodslab/packages/video-engine)
+- [packages/video-engine](/Users/i/Documents/Numerical-Methods/packages/video-engine)
   - timeline va render contract
-- [packages/methods-engine](/Users/i/Documents/methodslab/packages/methods-engine)
+- [packages/methods-engine](/Users/i/Documents/Numerical-Methods/packages/methods-engine)
   - matematik hisob va trace qatlamlari
-- [packages/scene-dsl](/Users/i/Documents/methodslab/packages/scene-dsl)
+- [packages/scene-dsl](/Users/i/Documents/Numerical-Methods/packages/scene-dsl)
   - video sahna kodini parse qiladigan modul
 
 ## Video Lab scene code

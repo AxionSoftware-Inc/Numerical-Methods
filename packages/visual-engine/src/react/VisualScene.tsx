@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { VisualSceneSpec } from "../core";
 import { applyVisualSceneStyle, renderVisualSceneSpec } from "./renderVisualScene";
@@ -41,6 +41,13 @@ type Runtime = {
   lastRenderTime: number;
 };
 
+type HoverInfo = {
+  x: number;
+  y: number;
+  title: string;
+  description: string;
+};
+
 const PREVIEW_RENDER_INTERVAL_MS = 1000 / 30;
 
 export function VisualScene({
@@ -55,6 +62,7 @@ export function VisualScene({
   const onCanvasReadyRef = useRef(onCanvasReady);
   const previousResetKeyRef = useRef<string | undefined>(undefined);
   const previousContentKeyRef = useRef<string | null>(null);
+  const [hover, setHover] = useState<HoverInfo | null>(null);
 
   useEffect(() => {
     onCanvasReadyRef.current = onCanvasReady;
@@ -145,7 +153,52 @@ export function VisualScene({
 
     runtime.frameId = requestAnimationFrame(render);
 
+    const raycaster = new THREE.Raycaster();
+    raycaster.params.Points.threshold = 0.065;
+    raycaster.params.Line.threshold = 0.055;
+    const pointer = new THREE.Vector2();
+
+    const onPointerMove = (event: PointerEvent) => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((event.clientX - rect.left) / Math.max(rect.width, 1)) * 2 - 1;
+      pointer.y = -(((event.clientY - rect.top) / Math.max(rect.height, 1)) * 2 - 1);
+      raycaster.setFromCamera(pointer, camera);
+
+      const hit = raycaster
+        .intersectObjects(content.children, true)
+        .find((item) => item.object.userData.layerId && item.object.userData.pickable !== false);
+
+      if (!hit) {
+        renderer.domElement.style.cursor = "grab";
+        setHover(null);
+        return;
+      }
+
+      const metadata = hit.object.userData.metadata as { title?: string; description?: string } | undefined;
+      const layerId = String(hit.object.userData.layerId);
+      const layerKind = String(hit.object.userData.layerKind ?? "visual layer");
+      const objectId = hit.object.userData.objectId ? String(hit.object.userData.objectId) : layerKind;
+
+      renderer.domElement.style.cursor = "help";
+      setHover({
+        x: event.clientX,
+        y: event.clientY,
+        title: metadata?.title ?? formatLayerTitle(layerId),
+        description: metadata?.description ?? `${objectId} · ${layerKind}`,
+      });
+    };
+
+    const onPointerLeave = () => {
+      renderer.domElement.style.cursor = "grab";
+      setHover(null);
+    };
+
+    renderer.domElement.addEventListener("pointermove", onPointerMove);
+    renderer.domElement.addEventListener("pointerleave", onPointerLeave);
+
     return () => {
+      renderer.domElement.removeEventListener("pointermove", onPointerMove);
+      renderer.domElement.removeEventListener("pointerleave", onPointerLeave);
       cancelAnimationFrame(runtime.frameId);
       observer.disconnect();
       controls.dispose();
@@ -185,7 +238,26 @@ export function VisualScene({
     runtime.controls.update();
   }, [cameraMode, cameraResetKey, contentKey, spec]);
 
-  return <div ref={mountRef} className={className} />;
+  return (
+    <div ref={mountRef} className={className}>
+      {hover ? (
+        <div
+          data-testid="visual-tooltip"
+          className="pointer-events-none z-50 max-w-[260px] rounded border border-white/15 bg-[#061016]/90 px-3 py-2 text-xs leading-5 text-[#d7e3ea] shadow-2xl shadow-black/35 backdrop-blur-md"
+          style={{ position: "fixed", left: hover.x + 14, top: hover.y + 14 }}
+        >
+          <div className="font-semibold text-white">{hover.title}</div>
+          <div className="mt-1 text-[#9fb3bb]">{hover.description}</div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function formatLayerTitle(layerId: string): string {
+  return layerId
+    .replace(/[-_:]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function createCamera(
@@ -316,6 +388,7 @@ function layerContentKey(layer: VisualSceneSpec["layers"][number]): string {
       return [
         ...base,
         layer.segments.length,
+        lineSegmentsContentKey(layer.segments),
         layer.color,
         layer.opacity ?? "",
       ].join(",");
@@ -418,6 +491,11 @@ function layerContentKey(layer: VisualSceneSpec["layers"][number]): string {
 
 function numberArrayContentKey(values: number[]): string {
   return sampleSignature(values, 192).join(",");
+}
+
+function lineSegmentsContentKey(segments: Array<{ from: [number, number, number]; to: [number, number, number] }>): string {
+  const values = segments.flatMap((segment) => [...segment.from, ...segment.to]);
+  return numberArrayContentKey(values);
 }
 
 function vec3ArrayContentKey(values: Array<[number, number, number]>): string {

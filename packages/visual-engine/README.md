@@ -1,6 +1,6 @@
 # @methodslab/visual-engine
 
-Reusable visual renderer for MethodsLab traces.
+Reusable visual renderer for OperatorLab traces.
 
 This package owns rendering, viewport controls, hit testing, and scene adapters.
 It does not define numerical methods or mathematical presets. Those live in
@@ -24,7 +24,7 @@ import { MethodScene, VisualViewportControls } from "@methodslab/visual-engine/r
 
 ## Boundary
 
-- `@methodslab/methods-engine`: math contracts, methods, examples, traces, analysis.
+- `@methodslab/methods-engine`: math contracts, operators, examples, traces, analysis.
 - `@methodslab/visual-engine/core`: renderer-independent scene specs and visual geometry builders.
 - `@methodslab/visual-engine/react`: React/WebGL scenes, 2D/3D renderers, custom viewport controls.
 

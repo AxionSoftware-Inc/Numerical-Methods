@@ -126,7 +126,7 @@ export function VideoEngineSmokeTest() {
     <section className="grid min-h-[760px] grid-cols-[380px_1fr] overflow-hidden rounded-[2rem] border border-white/10 bg-[#050b0f] text-white shadow-2xl">
       <aside className="border-r border-white/10 bg-white/[0.035] p-6">
         <p className="text-xs font-medium uppercase tracking-[0.28em] text-cyan-300">
-          MethodsLab Video
+          OperatorLab Video
         </p>
 
         <h1 className="mt-3 text-2xl font-semibold tracking-tight">

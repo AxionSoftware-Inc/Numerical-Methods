@@ -1,4 +1,4 @@
-# MethodsLab Video Engine Architecture
+# OperatorLab Video Engine Architecture
 
 Bu loyiha hozir ikki qatlamga bo'lingan:
 

@@ -496,11 +496,13 @@ function applyLayerBase(object: THREE.Object3D, layer: VisualLayerBase): void {
     });
   }
 
-  object.userData.layerId = layer.id;
-  object.userData.objectId = layer.objectId;
-  object.userData.layerKind = layer.kind;
-  object.userData.pickable = layer.pickable;
-  object.userData.metadata = layer.metadata;
+  object.traverse((child) => {
+    child.userData.layerId = layer.id;
+    child.userData.objectId = layer.objectId;
+    child.userData.layerKind = layer.kind;
+    child.userData.pickable = layer.pickable;
+    child.userData.metadata = layer.metadata;
+  });
 }
 
 function partialPathPoints(
@@ -658,7 +660,7 @@ function layoutLatex(
   fontSize: number,
   context: CanvasRenderingContext2D,
 ): TextBox {
-  const parser = new LatexBoxParser(source, fontSize, context);
+  const parser = new LatexBoxParser(normalizeLatexSource(source), fontSize, context);
   return parser.parse();
 }
 
@@ -739,6 +741,10 @@ class LatexBoxParser {
     if (command === "sqrt") {
       const value = this.parseRequiredGroup(this.fontSize * 0.86);
       return makeSqrtBox(value, this.fontSize, this.context);
+    }
+
+    if (command === "mathcal" || command === "mathrm" || command === "text" || command === "operatorname") {
+      return this.parseRequiredGroup(this.fontSize);
     }
 
     if (command === "left" || command === "right") {
@@ -939,11 +945,18 @@ function latexFontFamily(): string {
 function latexCommandText(command: string): string {
   const symbols: Record<string, string> = {
     alpha: "α",
+    approx: "≈",
     beta: "β",
     gamma: "γ",
     delta: "δ",
     Delta: "Δ",
     epsilon: "ε",
+    eta: "η",
+    xi: "ξ",
+    phi: "φ",
+    varphi: "φ",
+    psi: "ψ",
+    tau: "τ",
     theta: "θ",
     lambda: "λ",
     mu: "μ",
@@ -971,6 +984,14 @@ function latexCommandText(command: string): string {
   };
 
   return symbols[command] ?? command;
+}
+
+function normalizeLatexSource(source: string): string {
+  return source
+    .replace(/\^\(([^)]+)\)/g, "^{$1}")
+    .replace(/_\(([^)]+)\)/g, "_{$1}")
+    .replace(/\^(-?\d+(?:\.\d+)?)/g, "^{$1}")
+    .replace(/_(-?\d+(?:\.\d+)?)/g, "_{$1}");
 }
 
 function toThreeColor(color: VisualColor): THREE.ColorRepresentation {

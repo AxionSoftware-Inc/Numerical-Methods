@@ -5,15 +5,34 @@ import {
   buildPdeTrace,
   buildStabilityScan,
   buildTrace,
+  analyzeOperatorInput,
+  buildOptimizationTrace,
+  createCustomSchemeDraft,
   createCustomThetaPdeMethod,
   createEnergyCorrectedEulerMethod,
+  buildProbabilityTrace,
   energyCorrectedEulerCode,
   format,
   oscillatorEnergy,
 } from "@methodslab/methods-engine/core";
-import { examples, methods, pdeExamples, pdeMethods } from "@methodslab/methods-engine/presets";
-import { MethodScene, PdeScene } from "@methodslab/visual-engine/react";
-import type { EnergySample, ExampleId, ExampleSpec, LayerSpec, MethodId, PdeExampleId, PdeMethodId, StabilityScanTrace } from "@methodslab/methods-engine/core";
+import { examples, methods, operatorFamilies, operatorRegistry, optimizationExamples, optimizationMethods, pdeExamples, pdeMethods, probabilityExamples, probabilityMethods } from "@methodslab/methods-engine/presets";
+import { MethodScene, PdeScene, VisualScene } from "@methodslab/visual-engine/react";
+import { createOperatorFamilySceneSpec, createOptimizationTraceSceneSpec, createProbabilityTraceSceneSpec } from "@methodslab/visual-engine/core";
+import type {
+  EnergySample,
+  ExampleId,
+  ExampleSpec,
+  LayerSpec,
+  MethodId,
+  OptimizationExampleId,
+  OptimizationMethodId,
+  OperatorFamilyId,
+  ProbabilityExampleId,
+  ProbabilityMethodId,
+  PdeExampleId,
+  PdeMethodId,
+  StabilityScanTrace,
+} from "@methodslab/methods-engine/core";
 import IntegralLab from "./integral-lab";
 import {
   Activity,
@@ -35,7 +54,7 @@ import {
   Waves,
   Zap,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
 type EnergyGraphSeries = {
@@ -46,27 +65,89 @@ type EnergyGraphSeries = {
 };
 
 const overlayMethodIds = new Set<MethodId>(["euler", "rk4", "symplectic"]);
-type LabMode = "ode" | "integral" | "pde" | "custom";
+type GenericFamilyId = Exclude<OperatorFamilyId, "ode" | "integral" | "pde">;
+type LabMode = "ode" | "integral" | "pde" | "custom" | "operator";
 
-export default function MethodLab() {
+const operatorFamilyInputs: Record<string, string> = {
+  ode: "y' = f(t,y)\ntrajectory\nrk4",
+  integral: "\\int_0^1 x^2\\,dx\nsimpson",
+  pde: "u_t = 0.12 u_xx\nu(x,0)=sin(pi x)\nu(0,t)=u(1,t)=0",
+  matrix: "Ax = b\nmatrix\njacobi",
+  "root-finding": "f(x)=x^3-x-1\nroot\nnewton",
+  optimization: "\\min_x f(x,y)=x^2+0.4y^2\ngradient descent",
+  probability: "dX_t = \\mu(X_t,t)dt + \\sigma(X_t,t)dW_t\nstochastic\nbrownian",
+  interpolation: "interpolation nodes\nlagrange polynomial\ncurve fit",
+  custom: "u_t = 0.12 u_xx\nu(x,0)=sin(pi x)\nu(0,t)=u(1,t)=0",
+};
+
+const familyButtonMeta: Record<string, { label: string; icon: ReactNode }> = {
+  ode: { label: "ODE", icon: <Box size={16} /> },
+  integral: { label: "Integral", icon: <Sigma size={16} /> },
+  pde: { label: "PDE", icon: <Thermometer size={16} /> },
+  matrix: { label: "Matrix", icon: <GitCompare size={16} /> },
+  "root-finding": { label: "Root", icon: <Crosshair size={16} /> },
+  optimization: { label: "Optim", icon: <TrendingUp size={16} /> },
+  probability: { label: "Prob", icon: <Activity size={16} /> },
+  interpolation: { label: "Interp", icon: <Waves size={16} /> },
+  custom: { label: "Custom", icon: <Sparkles size={16} /> },
+};
+
+export default function OperatorLab() {
   const [labMode, setLabMode] = useState<LabMode>("integral");
+  const [customInput, setCustomInput] = useState(operatorFamilyInputs.custom);
+  const [selectedFamilyId, setSelectedFamilyId] = useState<GenericFamilyId>("matrix");
+
+  function openFamily(familyId: string) {
+    if (familyId === "ode" || familyId === "integral" || familyId === "pde") {
+      setLabMode(familyId);
+      return;
+    }
+
+    if (familyId === "custom") {
+      setCustomInput(operatorFamilyInputs.custom);
+      setLabMode("custom");
+      return;
+    }
+
+    setSelectedFamilyId(familyId as GenericFamilyId);
+    setLabMode("operator");
+  }
 
   if (labMode === "integral") {
-    return <IntegralLab onSwitchToOde={() => setLabMode("ode")} onSwitchToPde={() => setLabMode("pde")} onSwitchToCustom={() => setLabMode("custom")} />;
+    return (
+      <IntegralLab
+        onSwitchToOde={() => setLabMode("ode")}
+        onSwitchToPde={() => setLabMode("pde")}
+        onSwitchToCustom={() => openFamily("custom")}
+        onOpenFamily={openFamily}
+      />
+    );
   }
 
   if (labMode === "pde") {
-    return <PdeLab onSwitchToIntegral={() => setLabMode("integral")} onSwitchToOde={() => setLabMode("ode")} onSwitchToCustom={() => setLabMode("custom")} />;
+    return <PdeLab onOpenFamily={openFamily} />;
   }
 
   if (labMode === "custom") {
-    return <CustomLab onOpenMode={setLabMode} />;
+    return <CustomLab onOpenMode={setLabMode} onOpenFamily={openFamily} initialFormula={customInput} />;
   }
 
-  return <OdeLab onSwitchToIntegral={() => setLabMode("integral")} onSwitchToPde={() => setLabMode("pde")} onSwitchToCustom={() => setLabMode("custom")} />;
+  if (labMode === "operator") {
+    if (selectedFamilyId === "optimization") {
+      return <OptimizationLab onOpenFamily={openFamily} />;
+    }
+
+    if (selectedFamilyId === "probability") {
+      return <ProbabilityLab onOpenFamily={openFamily} />;
+    }
+
+    return <GenericOperatorLab familyId={selectedFamilyId} onOpenFamily={openFamily} onOpenCustom={() => setLabMode("custom")} />;
+  }
+
+  return <OdeLab onOpenFamily={openFamily} />;
 }
 
-function OdeLab({ onSwitchToIntegral, onSwitchToPde, onSwitchToCustom }: { onSwitchToIntegral: () => void; onSwitchToPde: () => void; onSwitchToCustom: () => void }) {
+function OdeLab({ onOpenFamily }: { onOpenFamily: (familyId: string) => void }) {
   const [methodId, setMethodId] = useState<MethodId>("euler");
   const [exampleId, setExampleId] = useState<ExampleId>("oscillator");
   const [showField, setShowField] = useState(true);
@@ -210,41 +291,12 @@ function OdeLab({ onSwitchToIntegral, onSwitchToPde, onSwitchToCustom }: { onSwi
               <Box size={21} />
             </div>
             <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.12em] text-[#5c717c]">MethodsLab Visualizer</p>
+              <p className="text-sm font-semibold uppercase tracking-[0.12em] text-[#5c717c]">OperatorLab Visualizer</p>
               <h1 className="text-2xl font-semibold">{method.name} geometriyasi</h1>
             </div>
           </div>
 
-          <div className="mt-4 grid grid-cols-2 gap-2">
-            <button type="button" className="flex h-9 items-center justify-center gap-2 rounded bg-[#14222b] px-3 text-sm font-medium text-white">
-              <Box size={16} />
-              ODE
-            </button>
-            <button
-              type="button"
-              onClick={onSwitchToIntegral}
-              className="flex h-9 items-center justify-center gap-2 rounded border border-[#cfd9dd] bg-white px-3 text-sm font-medium hover:bg-[#eef4f5]"
-            >
-              <Sigma size={16} />
-              Integral
-            </button>
-          </div>
-          <button
-            type="button"
-            onClick={onSwitchToPde}
-            className="mt-2 flex h-9 w-full items-center justify-center gap-2 rounded border border-[#cfd9dd] bg-white px-3 text-sm font-medium hover:bg-[#eef4f5]"
-          >
-            <Thermometer size={16} />
-            PDE
-          </button>
-          <button
-            type="button"
-            onClick={onSwitchToCustom}
-            className="mt-2 flex h-9 w-full items-center justify-center gap-2 rounded border border-[#cfd9dd] bg-white px-3 text-sm font-medium hover:bg-[#eef4f5]"
-          >
-            <Sparkles size={16} />
-            Custom
-          </button>
+          <OperatorFamilyNav current="ode" onOpenFamily={onOpenFamily} />
 
           <div className="mt-6 space-y-5">
             <div className="rounded border border-[#dce4e7] bg-white p-4">
@@ -447,7 +499,7 @@ function OdeLab({ onSwitchToIntegral, onSwitchToPde, onSwitchToCustom }: { onSwi
   );
 }
 
-function PdeLab({ onSwitchToIntegral, onSwitchToOde, onSwitchToCustom }: { onSwitchToIntegral: () => void; onSwitchToOde: () => void; onSwitchToCustom: () => void }) {
+function PdeLab({ onOpenFamily }: { onOpenFamily: (familyId: string) => void }) {
   const [methodId, setMethodId] = useState<PdeMethodId>("ftcs");
   const [exampleId, setExampleId] = useState<PdeExampleId>("heated-string");
   const [theta, setTheta] = useState(0.5);
@@ -478,41 +530,12 @@ function PdeLab({ onSwitchToIntegral, onSwitchToOde, onSwitchToCustom }: { onSwi
               <Thermometer size={21} />
             </div>
             <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.12em] text-[#5c717c]">MethodsLab Visualizer</p>
+              <p className="text-sm font-semibold uppercase tracking-[0.12em] text-[#5c717c]">OperatorLab Visualizer</p>
               <h1 className="text-2xl font-semibold">{method.name} PDE laboratoriyasi</h1>
             </div>
           </div>
 
-          <div className="mt-4 grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={onSwitchToOde}
-              className="flex h-9 items-center justify-center gap-2 rounded border border-[#cfd9dd] bg-white px-3 text-sm font-medium hover:bg-[#eef4f5]"
-            >
-              <Box size={16} />
-              ODE
-            </button>
-            <button
-              type="button"
-              onClick={onSwitchToIntegral}
-              className="flex h-9 items-center justify-center gap-2 rounded border border-[#cfd9dd] bg-white px-3 text-sm font-medium hover:bg-[#eef4f5]"
-            >
-              <Sigma size={16} />
-              Integral
-            </button>
-            <button type="button" className="flex h-9 items-center justify-center gap-2 rounded bg-[#14222b] px-3 text-sm font-medium text-white">
-              <Thermometer size={16} />
-              PDE
-            </button>
-            <button
-              type="button"
-              onClick={onSwitchToCustom}
-              className="flex h-9 items-center justify-center gap-2 rounded border border-[#cfd9dd] bg-white px-3 text-sm font-medium hover:bg-[#eef4f5]"
-            >
-              <Sparkles size={16} />
-              Custom
-            </button>
-          </div>
+          <OperatorFamilyNav current="pde" onOpenFamily={onOpenFamily} />
 
           <div className="mt-6 space-y-5">
             <div className="rounded border border-[#dce4e7] bg-white p-4">
@@ -651,17 +674,558 @@ function PdeLab({ onSwitchToIntegral, onSwitchToOde, onSwitchToCustom }: { onSwi
   );
 }
 
-type CustomSuggestion = {
-  mode: LabMode;
-  title: string;
-  visual: string;
-  reason: string;
-  method: string;
-};
+function GenericOperatorLab({
+  familyId,
+  onOpenFamily,
+  onOpenCustom,
+}: {
+  familyId: GenericFamilyId;
+  onOpenFamily: (familyId: string) => void;
+  onOpenCustom: () => void;
+}) {
+  const family = operatorRegistry.familiesById[familyId];
+  const [schemeId, setSchemeId] = useState(family.schemes[0]?.id ?? "");
+  const [formula, setFormula] = useState(operatorFamilyInputs[familyId] ?? family.schemes[0]?.formula ?? "");
+  const [showAnalysis, setShowAnalysis] = useState(true);
+  const [showComparison, setShowComparison] = useState(true);
+  const [focus, setFocus] = useState(0.62);
 
-function CustomLab({ onOpenMode }: { onOpenMode: (mode: LabMode) => void }) {
-  const [formula, setFormula] = useState("u_t = 0.12 u_xx\nu(x,0)=sin(pi x)\nu(0,t)=u(1,t)=0");
-  const suggestion = useMemo(() => suggestVisualizer(formula), [formula]);
+  useEffect(() => {
+    setSchemeId(family.schemes[0]?.id ?? "");
+    setFormula(operatorFamilyInputs[familyId] ?? family.schemes[0]?.formula ?? "");
+  }, [familyId, family.schemes]);
+
+  const scheme = family.schemes.find((item) => item.id === schemeId) ?? family.schemes[0]!;
+  const analysis = useMemo(() => analyzeOperatorInput(formula, operatorRegistry), [formula]);
+  const sceneSpec = useMemo(
+    () =>
+      createOperatorFamilySceneSpec({
+        familyName: family.name,
+        visualGrammar: family.visualGrammar,
+        schemeName: scheme.name,
+        formula,
+        summary: family.summary,
+        normalizedInput: formula.toLowerCase(),
+        confidence: analysis.family.id === family.id ? analysis.confidence : 0.72,
+        showAnalysis,
+        showComparison,
+        focus,
+      }),
+    [analysis.confidence, analysis.family.id, family.id, family.name, family.summary, family.visualGrammar, focus, formula, scheme.name, showAnalysis, showComparison],
+  );
+
+  return (
+    <main className="h-screen overflow-hidden bg-[#f4f7f8] text-[#152026]">
+      <section className="grid h-screen grid-rows-[minmax(0,52vh)_minmax(0,48vh)] overflow-hidden lg:grid-cols-[430px_1fr] lg:grid-rows-1">
+        <aside className="order-2 min-h-0 overflow-y-auto border-t border-[#d8e0e3] bg-[#fbfcfc] p-5 lg:order-1 lg:h-screen lg:border-r lg:border-t-0">
+          <div className="flex items-center gap-3">
+            <div className="flex size-10 items-center justify-center rounded bg-[#14222b] text-white">
+              {familyButtonMeta[family.id].icon}
+            </div>
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.12em] text-[#5c717c]">OperatorLab Visualizer</p>
+              <h1 className="text-2xl font-semibold">{family.name}</h1>
+            </div>
+          </div>
+
+          <OperatorFamilyNav current={family.id} onOpenFamily={onOpenFamily} />
+
+          <div className="mt-6 space-y-5">
+            <div className="rounded border border-[#dce4e7] bg-white p-4">
+              <div className="text-sm font-semibold text-[#31424b]">Metodlar</div>
+              <div className="mt-3 grid grid-cols-1 gap-2">
+                {family.schemes.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      setSchemeId(item.id);
+                      setFormula(item.formula);
+                    }}
+                    className={`min-h-10 rounded border px-3 text-left text-sm font-medium ${
+                      item.id === scheme.id ? "border-[#14222b] bg-[#14222b] text-white" : "border-[#cfd9dd] bg-white hover:bg-[#eef4f5]"
+                    }`}
+                  >
+                    {item.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded border border-[#dce4e7] bg-white p-4">
+              <div className="text-sm font-semibold text-[#31424b]">Formula</div>
+              <textarea
+                value={formula}
+                onChange={(event) => setFormula(event.target.value)}
+                spellCheck={false}
+                className="mt-3 h-36 w-full resize-none rounded border border-[#cfd9dd] bg-[#071115] p-3 font-mono text-sm leading-6 text-[#d7e3ea] outline-none focus:border-[#0f766e]"
+              />
+              <button
+                type="button"
+                onClick={() => onOpenCustom()}
+                className="mt-3 flex h-9 w-full items-center justify-center gap-2 rounded border border-[#cfd9dd] bg-white px-3 text-sm font-medium hover:bg-[#eef4f5]"
+              >
+                <Braces size={16} />
+                Erkin custom rejim
+              </button>
+            </div>
+
+            <div className="rounded border border-[#dce4e7] bg-white p-4">
+              <label htmlFor="operatorFocus" className="flex items-center justify-between text-sm font-semibold text-[#31424b]">
+                Focus
+                <span className="font-mono text-[#0f766e]">{Math.round(focus * 100)}%</span>
+              </label>
+              <input
+                id="operatorFocus"
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={focus}
+                onChange={(event) => setFocus(Number(event.target.value))}
+                className="mt-4 w-full accent-[#0f766e]"
+              />
+
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <ToggleButton active={showAnalysis} icon={<ScanSearch size={16} />} label="Analysis" onClick={() => setShowAnalysis((value) => !value)} />
+                <ToggleButton active={showComparison} icon={<GitCompare size={16} />} label="Compare" onClick={() => setShowComparison((value) => !value)} />
+              </div>
+            </div>
+
+            <div className="rounded border border-[#dce4e7] bg-white p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-[#31424b]">
+                <Activity size={17} />
+                Operator modeli
+              </div>
+              <div className="mt-3 space-y-2 font-mono text-[13px] leading-6 text-[#20303a]">
+                <p>{scheme.formula}</p>
+                <p>{scheme.order ?? family.visualGrammar}</p>
+                <p>{scheme.stability ?? family.summary}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <Metric label="Grammar" value={family.visualGrammar} />
+              <Metric label="Schemes" value={`${family.schemes.length}`} />
+              <Metric label="Status" value={family.status} />
+            </div>
+
+            <div className="rounded border border-[#dce4e7] bg-white p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-[#31424b]">
+                <GitCompare size={17} />
+                Geometrik talqin
+              </div>
+              <p className="mt-3 text-sm leading-6 text-[#50626b]">{scheme.geometry}</p>
+              <p className="mt-3 text-sm leading-6 text-[#50626b]">{family.summary}</p>
+            </div>
+          </div>
+        </aside>
+
+        <div className="relative order-1 min-h-0 overflow-hidden bg-[#021017] lg:order-2">
+          <VisualScene spec={sceneSpec} cameraMode="follow-spec" className="absolute inset-0" />
+          <div className="pointer-events-none absolute left-4 top-4 flex max-w-[calc(100%-2rem)] flex-wrap gap-2 text-xs font-medium">
+            <span className="rounded px-2 py-1 text-[#111827]" style={{ background: scheme.color }}>
+              {scheme.name}
+            </span>
+            <span className="rounded bg-[#e0f2fe] px-2 py-1 text-[#0c4a6e]">{family.visualGrammar}</span>
+            <span className="rounded bg-[#dcfce7] px-2 py-1 text-[#166534]">{family.status}</span>
+          </div>
+          <div className="pointer-events-none absolute bottom-4 left-4 max-w-xl rounded bg-black/35 px-3 py-2 text-sm leading-6 text-[#d7e3ea] backdrop-blur-sm">
+            {scheme.geometry}
+          </div>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function OptimizationLab({ onOpenFamily }: { onOpenFamily: (familyId: string) => void }) {
+  const [methodId, setMethodId] = useState<OptimizationMethodId>("gradient-descent");
+  const [exampleId, setExampleId] = useState<OptimizationExampleId>("rosenbrock");
+  const [stepSize, setStepSize] = useState(optimizationExamples[0].defaultStep);
+  const [iterations, setIterations] = useState(optimizationExamples[0].defaultIterations);
+  const [showSurface, setShowSurface] = useState(true);
+  const [showGradient, setShowGradient] = useState(true);
+  const [showComparison, setShowComparison] = useState(true);
+  const [focus, setFocus] = useState(0.78);
+
+  const method = optimizationMethods.find((item) => item.id === methodId) ?? optimizationMethods[0]!;
+  const example = optimizationExamples.find((item) => item.id === exampleId) ?? optimizationExamples[0]!;
+
+  useEffect(() => {
+    setStepSize(example.defaultStep);
+    setIterations(example.defaultIterations);
+    setFocus(0.78);
+  }, [example]);
+
+  const trace = useMemo(
+    () => buildOptimizationTrace(method, example, { stepSize, iterations }),
+    [example, iterations, method, stepSize],
+  );
+  const comparisonTraces = useMemo(
+    () =>
+      optimizationMethods
+        .filter((item) => item.id !== method.id)
+        .map((item) => buildOptimizationTrace(item, example, { stepSize, iterations })),
+    [example, iterations, method.id, stepSize],
+  );
+  const sceneSpec = useMemo(
+    () => createOptimizationTraceSceneSpec(trace, example, { showSurface, showGradient, showComparison, focus, comparisonTraces }),
+    [comparisonTraces, example, focus, showComparison, showGradient, showSurface, trace],
+  );
+  const bestStep = trace.steps.reduce((best, item) => (item.value < best.value ? item : best), trace.steps[0]!);
+  const actualSteps = Math.max(0, Math.floor((trace.steps.length - 1) * focus));
+
+  return (
+    <main className="h-screen overflow-hidden bg-[#f4f7f8] text-[#152026]">
+      <section className="grid h-screen grid-rows-[minmax(0,52vh)_minmax(0,48vh)] overflow-hidden lg:grid-cols-[430px_1fr] lg:grid-rows-1">
+        <aside className="order-2 min-h-0 overflow-y-auto border-t border-[#d8e0e3] bg-[#fbfcfc] p-5 lg:order-1 lg:h-screen lg:border-r lg:border-t-0">
+          <div className="flex items-center gap-3">
+            <div className="flex size-10 items-center justify-center rounded bg-[#14222b] text-white">
+              <TrendingUp size={21} />
+            </div>
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.12em] text-[#5c717c]">OperatorLab Optimization</p>
+              <h1 className="text-2xl font-semibold">{method.name}</h1>
+            </div>
+          </div>
+
+          <OperatorFamilyNav current="optimization" onOpenFamily={onOpenFamily} />
+
+          <div className="mt-6 space-y-5">
+            <div className="rounded border border-[#dce4e7] bg-white p-4">
+              <div className="text-sm font-semibold text-[#31424b]">Metod</div>
+              <div className="mt-3 grid grid-cols-1 gap-2">
+                {optimizationMethods.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setMethodId(item.id)}
+                    className={`min-h-10 rounded border px-3 text-left text-sm font-medium ${
+                      item.id === method.id ? "border-[#14222b] bg-[#14222b] text-white" : "border-[#cfd9dd] bg-white hover:bg-[#eef4f5]"
+                    }`}
+                  >
+                    {item.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded border border-[#dce4e7] bg-white p-4">
+              <div className="text-sm font-semibold text-[#31424b]">Objective landscape</div>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                {optimizationExamples.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setExampleId(item.id)}
+                    className={`min-h-10 rounded border px-3 text-left text-sm font-medium ${
+                      item.id === example.id ? "border-[#0f766e] bg-[#0f766e] text-white" : "border-[#cfd9dd] bg-white hover:bg-[#eef4f5]"
+                    }`}
+                  >
+                    {item.shortName}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded border border-[#dce4e7] bg-white p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-[#31424b]">
+                <Sigma size={17} />
+                Model
+              </div>
+              <div className="mt-3 space-y-2 font-mono text-[13px] leading-6 text-[#20303a]">
+                <p>{example.formula}</p>
+                <p>{method.formula}</p>
+                <p>{method.order}</p>
+              </div>
+            </div>
+
+            <div className="rounded border border-[#dce4e7] bg-white p-4">
+              <Slider label="Step size" value={stepSize} min={example.minStep} max={example.maxStep} step={(example.maxStep - example.minStep) / 120} color="#e11d48" onChange={setStepSize} format={(value) => value.toFixed(4)} />
+              <Slider label="Iterations" value={iterations} min={example.minIterations} max={example.maxIterations} step={1} color="#0f766e" onChange={setIterations} />
+              <Slider label="Focus" value={focus} min={0.08} max={1} step={0.01} color="#ca8a04" onChange={setFocus} format={(value) => `${Math.round(value * 100)}%`} />
+            </div>
+
+            <div className="rounded border border-[#dce4e7] bg-white p-4">
+              <div className="grid grid-cols-2 gap-2">
+                <ToggleButton active={showSurface} icon={<Layers size={16} />} label="Surface" onClick={() => setShowSurface((value) => !value)} />
+                <ToggleButton active={showGradient} icon={<Orbit size={16} />} label="Gradient" onClick={() => setShowGradient((value) => !value)} />
+                <ToggleButton active={showComparison} icon={<GitCompare size={16} />} label="Compare" onClick={() => setShowComparison((value) => !value)} />
+                <ToggleButton active={focus < 1} icon={<Focus size={16} />} label="Trace focus" onClick={() => setFocus((value) => (value < 1 ? 1 : 0.46))} />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Metric label="Final f" value={trace.finalValue.toExponential(2)} />
+              <Metric label="Best f" value={bestStep.value.toExponential(2)} />
+              <Metric label="||grad||" value={trace.finalGradientNorm.toExponential(2)} />
+              <Metric label="Distance" value={trace.finalDistance.toExponential(2)} />
+            </div>
+
+            <div className="rounded border border-[#dce4e7] bg-white p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-[#31424b]">
+                <GitCompare size={17} />
+                Method comparison
+              </div>
+              <div className="mt-3 space-y-2 text-xs">
+                {[trace, ...comparisonTraces].map((item) => (
+                  <div key={item.metadata.methodId} className="grid grid-cols-[1fr_auto_auto] items-center gap-2 rounded border border-[#e2e8f0] px-2 py-2">
+                    <span className="truncate font-medium text-[#31424b]">{item.metadata.methodName}</span>
+                    <span className="font-mono text-[#0f766e]">f {item.finalValue.toExponential(1)}</span>
+                    <span className="font-mono text-[#be185d]">d {item.finalDistance.toExponential(1)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded border border-[#dce4e7] bg-white p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-[#31424b]">
+                <ScanSearch size={17} />
+                Geometrik talqin
+              </div>
+              <p className="mt-3 text-sm leading-6 text-[#50626b]">{method.geometry}</p>
+              <p className="mt-3 text-sm leading-6 text-[#50626b]">{method.stability}</p>
+              <p className="mt-3 text-sm leading-6 text-[#50626b]">{example.interpretation}</p>
+            </div>
+          </div>
+        </aside>
+
+        <div className="relative order-1 min-h-0 overflow-hidden bg-[#11100c] lg:order-2">
+          <VisualScene spec={sceneSpec} cameraMode="follow-spec" className="absolute inset-0" />
+          <div className="pointer-events-none absolute left-4 top-4 flex max-w-[calc(100%-2rem)] flex-wrap gap-2 text-xs font-medium">
+            <span className="rounded px-2 py-1 text-[#111827]" style={{ background: method.color }}>{method.name}</span>
+            <span className="rounded bg-[#dcfce7] px-2 py-1 text-[#166534]">k={actualSteps}/{trace.iterations}</span>
+            <span className="rounded bg-[#fef3c7] px-2 py-1 text-[#92400e]">eta={trace.stepSize.toFixed(4)}</span>
+            <span className="rounded bg-[#fee2e2] px-2 py-1 text-[#991b1b]">f={trace.finalValue.toExponential(1)}</span>
+          </div>
+          <div className="pointer-events-none absolute bottom-4 left-4 max-w-2xl rounded bg-black/35 px-3 py-2 text-sm leading-6 text-[#f3e8d1] backdrop-blur-sm">
+            Surface objective f(x,y) ni, pushti path iteratsiyalarni, oq arrowlar negative gradientni, yashil nuqta optimumni, kichik convergence graph esa f(x_k) kamayishini ko'rsatadi. Element ustiga sichqoncha olib boring.
+          </div>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function ProbabilityLab({ onOpenFamily }: { onOpenFamily: (familyId: string) => void }) {
+  const [methodId, setMethodId] = useState<ProbabilityMethodId>("euler-maruyama");
+  const [exampleId, setExampleId] = useState<ProbabilityExampleId>("geometric-brownian");
+  const [steps, setSteps] = useState(probabilityExamples[0].defaultSteps);
+  const [pathCount, setPathCount] = useState(probabilityExamples[0].defaultPaths);
+  const [drift, setDrift] = useState(probabilityExamples[0].drift);
+  const [volatility, setVolatility] = useState(probabilityExamples[0].volatility);
+  const [seed, setSeed] = useState(42);
+  const [showPaths, setShowPaths] = useState(true);
+  const [showMoments, setShowMoments] = useState(true);
+  const [showHistogram, setShowHistogram] = useState(true);
+  const [showConvergence, setShowConvergence] = useState(true);
+  const [focus, setFocus] = useState(0.78);
+
+  const method = probabilityMethods.find((item) => item.id === methodId) ?? probabilityMethods[0]!;
+  const example = probabilityExamples.find((item) => item.id === exampleId) ?? probabilityExamples[0]!;
+
+  useEffect(() => {
+    setSteps(example.defaultSteps);
+    setPathCount(example.defaultPaths);
+    setDrift(example.drift);
+    setVolatility(example.volatility);
+  }, [example]);
+
+  const trace = useMemo(
+    () => buildProbabilityTrace(method, example, { steps, pathCount, drift, volatility, seed }),
+    [drift, example, method, pathCount, seed, steps, volatility],
+  );
+  const comparisonTraces = useMemo(
+    () =>
+      probabilityMethods
+        .filter((item) => item.id !== method.id)
+        .map((item) => buildProbabilityTrace(item, example, { steps, pathCount, drift, volatility, seed })),
+    [drift, example, method.id, pathCount, seed, steps, volatility],
+  );
+  const sceneSpec = useMemo(
+    () => createProbabilityTraceSceneSpec(trace, { showPaths, showMoments, showHistogram, showConvergence, focus, comparisonTraces }),
+    [comparisonTraces, focus, showConvergence, showHistogram, showMoments, showPaths, trace],
+  );
+  const meanError = Math.abs(trace.terminalMean - trace.exactTerminalMean);
+  const varianceError = Math.abs(trace.terminalVariance - trace.exactTerminalVariance);
+
+  return (
+    <main className="h-screen overflow-hidden bg-[#f4f7f8] text-[#152026]">
+      <section className="grid h-screen grid-rows-[minmax(0,52vh)_minmax(0,48vh)] overflow-hidden lg:grid-cols-[430px_1fr] lg:grid-rows-1">
+        <aside className="order-2 min-h-0 overflow-y-auto border-t border-[#d8e0e3] bg-[#fbfcfc] p-5 lg:order-1 lg:h-screen lg:border-r lg:border-t-0">
+          <div className="flex items-center gap-3">
+            <div className="flex size-10 items-center justify-center rounded bg-[#14222b] text-white">
+              <Activity size={21} />
+            </div>
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.12em] text-[#5c717c]">OperatorLab Statistics</p>
+              <h1 className="text-2xl font-semibold">{method.name}</h1>
+            </div>
+          </div>
+
+          <OperatorFamilyNav current="probability" onOpenFamily={onOpenFamily} />
+
+          <div className="mt-6 space-y-5">
+            <div className="rounded border border-[#dce4e7] bg-white p-4">
+              <div className="text-sm font-semibold text-[#31424b]">Metod</div>
+              <div className="mt-3 grid grid-cols-1 gap-2">
+                {probabilityMethods.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setMethodId(item.id)}
+                    className={`min-h-10 rounded border px-3 text-left text-sm font-medium ${
+                      item.id === method.id ? "border-[#14222b] bg-[#14222b] text-white" : "border-[#cfd9dd] bg-white hover:bg-[#eef4f5]"
+                    }`}
+                  >
+                    {item.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded border border-[#dce4e7] bg-white p-4">
+              <div className="text-sm font-semibold text-[#31424b]">Stochastic model</div>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                {probabilityExamples.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setExampleId(item.id)}
+                    className={`min-h-10 rounded border px-3 text-left text-sm font-medium ${
+                      item.id === example.id ? "border-[#0f766e] bg-[#0f766e] text-white" : "border-[#cfd9dd] bg-white hover:bg-[#eef4f5]"
+                    }`}
+                  >
+                    {item.shortName}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded border border-[#dce4e7] bg-white p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-[#31424b]">
+                <Activity size={17} />
+                Model
+              </div>
+              <div className="mt-3 space-y-2 font-mono text-[13px] leading-6 text-[#20303a]">
+                <p>{example.equation}</p>
+                <p>{method.formula}</p>
+                <p>{method.order}</p>
+              </div>
+            </div>
+
+            <div className="rounded border border-[#dce4e7] bg-white p-4">
+              <Slider label="Time steps" value={steps} min={example.minSteps} max={example.maxSteps} step={1} color="#0f766e" onChange={setSteps} />
+              <Slider label="Paths" value={pathCount} min={example.minPaths} max={example.maxPaths} step={1} color="#2563eb" onChange={setPathCount} />
+              <Slider label="Drift" value={drift} min={-0.4} max={0.6} step={0.01} color="#ca8a04" onChange={setDrift} />
+              <Slider label="Volatility" value={volatility} min={0.02} max={0.9} step={0.01} color="#be185d" onChange={setVolatility} />
+              <Slider label="Seed" value={seed} min={1} max={999} step={1} color="#475569" onChange={setSeed} />
+              <Slider label="Focus" value={focus} min={0.08} max={1} step={0.01} color="#0f766e" onChange={setFocus} format={(value) => `${Math.round(value * 100)}%`} />
+            </div>
+
+            <div className="rounded border border-[#dce4e7] bg-white p-4">
+              <div className="grid grid-cols-2 gap-2">
+                <ToggleButton active={showPaths} icon={<Waves size={16} />} label="Paths" onClick={() => setShowPaths((value) => !value)} />
+                <ToggleButton active={showMoments} icon={<TrendingUp size={16} />} label="Moments" onClick={() => setShowMoments((value) => !value)} />
+                <ToggleButton active={showHistogram} icon={<Layers size={16} />} label="Histogram" onClick={() => setShowHistogram((value) => !value)} />
+                <ToggleButton active={showConvergence} icon={<ScanSearch size={16} />} label="Converge" onClick={() => setShowConvergence((value) => !value)} />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Metric label="Mean err" value={meanError.toExponential(2)} />
+              <Metric label="Var err" value={varianceError.toExponential(2)} />
+              <Metric label="Payoff" value={format(trace.payoffEstimate)} />
+              <Metric label="Std err" value={trace.payoffStdError.toExponential(2)} />
+              <Metric label="P(X>K)" value={`${Math.round(trace.probabilityAbovePayoff * 100)}%`} />
+              <Metric label="Q05/Q95" value={`${format(trace.quantile05)} / ${format(trace.quantile95)}`} />
+            </div>
+
+            <div className="rounded border border-[#dce4e7] bg-white p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-[#31424b]">
+                <GitCompare size={17} />
+                Method comparison
+              </div>
+              <div className="mt-3 space-y-2 text-xs">
+                {[trace, ...comparisonTraces].map((item) => (
+                  <div key={item.metadata.methodId} className="grid grid-cols-[1fr_auto_auto] items-center gap-2 rounded border border-[#e2e8f0] px-2 py-2">
+                    <span className="truncate font-medium text-[#31424b]">{item.metadata.methodName}</span>
+                    <span className="font-mono text-[#0f766e]">mean {item.meanAbsError.toExponential(1)}</span>
+                    <span className="font-mono text-[#be185d]">var {item.varianceAbsError.toExponential(1)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded border border-[#dce4e7] bg-white p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-[#31424b]">
+                <GitCompare size={17} />
+                Statistik talqin
+              </div>
+              <p className="mt-3 text-sm leading-6 text-[#50626b]">{method.geometry}</p>
+              <p className="mt-3 text-sm leading-6 text-[#50626b]">{example.interpretation}</p>
+              <p className="mt-3 font-mono text-xs leading-5 text-[#50626b]">
+                95% CI payoff: [{format(trace.confidenceInterval[0])}, {format(trace.confidenceInterval[1])}]
+              </p>
+              <p className="mt-2 font-mono text-xs leading-5 text-[#50626b]">
+                q05={format(trace.quantile05)}, q95={format(trace.quantile95)}, ES05={format(trace.expectedShortfall05)}
+              </p>
+            </div>
+          </div>
+        </aside>
+
+        <div className="relative order-1 min-h-0 overflow-hidden bg-[#07131d] lg:order-2">
+          <VisualScene spec={sceneSpec} cameraMode="follow-spec" className="absolute inset-0" />
+          <div className="pointer-events-none absolute left-4 top-4 flex max-w-[calc(100%-2rem)] flex-wrap gap-2 text-xs font-medium">
+            <span className="rounded px-2 py-1 text-[#111827]" style={{ background: method.color }}>{method.name}</span>
+            <span className="rounded bg-[#dbeafe] px-2 py-1 text-[#0c4a6e]">N={trace.pathCount}</span>
+            <span className="rounded bg-[#dcfce7] px-2 py-1 text-[#166534]">dt={trace.dt.toFixed(3)}</span>
+            <span className="rounded bg-[#fef3c7] px-2 py-1 text-[#92400e]">mean error {meanError.toExponential(1)}</span>
+          </div>
+          <div className="pointer-events-none absolute bottom-4 left-4 max-w-xl rounded bg-black/35 px-3 py-2 text-sm leading-6 text-[#d7e3ea] backdrop-blur-sm">
+            Yellow mean line sample statisticani, white line exact mean'ni, translucent band 95% standard error'ni, orange threshold payoff risk'ni, right-side bars terminal distribution'ni ko'rsatadi.
+          </div>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function CustomLab({
+  onOpenMode,
+  onOpenFamily,
+  initialFormula,
+}: {
+  onOpenMode: (mode: LabMode) => void;
+  onOpenFamily: (familyId: string) => void;
+  initialFormula: string;
+}) {
+  const [formula, setFormula] = useState(initialFormula);
+  const analysis = useMemo(() => analyzeOperatorInput(formula, operatorRegistry), [formula]);
+  const draft = useMemo(() => createCustomSchemeDraft(analysis), [analysis]);
+  const sceneSpec = useMemo(
+    () =>
+      ["transform-basis", "convergence-path", "landscape-descent", "stochastic-path", "curve-reconstruction"].includes(
+        analysis.family.visualGrammar,
+      )
+        ? createOperatorFamilySceneSpec({
+            familyName: analysis.family.name,
+            visualGrammar: analysis.family.visualGrammar,
+            schemeName: draft.schemeName,
+            formula: draft.formula,
+            summary: analysis.family.summary,
+            normalizedInput: analysis.normalizedInput,
+            confidence: analysis.confidence,
+          })
+        : null,
+    [analysis.confidence, analysis.family.name, analysis.family.summary, analysis.family.visualGrammar, analysis.normalizedInput, draft.formula, draft.schemeName],
+  );
+  const mode = familyToMode(analysis.family.id);
+
+  useEffect(() => {
+    setFormula(initialFormula);
+  }, [initialFormula]);
 
   return (
     <main className="h-screen overflow-hidden bg-[#f4f7f8] text-[#152026]">
@@ -672,17 +1236,12 @@ function CustomLab({ onOpenMode }: { onOpenMode: (mode: LabMode) => void }) {
               <Braces size={21} />
             </div>
             <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.12em] text-[#5c717c]">MethodsLab Custom</p>
+              <p className="text-sm font-semibold uppercase tracking-[0.12em] text-[#5c717c]">OperatorLab Custom</p>
               <h1 className="text-2xl font-semibold">Custom metod/formula</h1>
             </div>
           </div>
 
-          <div className="mt-4 grid grid-cols-2 gap-2">
-            <button type="button" onClick={() => onOpenMode("ode")} className="flex h-9 items-center justify-center gap-2 rounded border border-[#cfd9dd] bg-white px-3 text-sm font-medium hover:bg-[#eef4f5]"><Box size={16} />ODE</button>
-            <button type="button" onClick={() => onOpenMode("integral")} className="flex h-9 items-center justify-center gap-2 rounded border border-[#cfd9dd] bg-white px-3 text-sm font-medium hover:bg-[#eef4f5]"><Sigma size={16} />Integral</button>
-            <button type="button" onClick={() => onOpenMode("pde")} className="flex h-9 items-center justify-center gap-2 rounded border border-[#cfd9dd] bg-white px-3 text-sm font-medium hover:bg-[#eef4f5]"><Thermometer size={16} />PDE</button>
-            <button type="button" className="flex h-9 items-center justify-center gap-2 rounded bg-[#14222b] px-3 text-sm font-medium text-white"><Sparkles size={16} />Custom</button>
-          </div>
+          <OperatorFamilyNav current="custom" onOpenFamily={onOpenFamily} />
 
           <div className="mt-6 space-y-5">
             <div className="rounded border border-[#dce4e7] bg-white p-4">
@@ -701,21 +1260,23 @@ function CustomLab({ onOpenMode }: { onOpenMode: (mode: LabMode) => void }) {
             <div className="rounded border border-[#dce4e7] bg-white p-4">
               <div className="flex items-center gap-2 text-sm font-semibold text-[#31424b]">
                 <ScanSearch size={17} />
-                Avtomatik tanlov
+                Avtomatik tahlil
               </div>
               <div className="mt-3 space-y-2 text-sm leading-6 text-[#20303a]">
-                <p><span className="font-semibold">Tur:</span> {suggestion.title}</p>
-                <p><span className="font-semibold">Vizual:</span> {suggestion.visual}</p>
-                <p><span className="font-semibold">Tavsiya metod:</span> {suggestion.method}</p>
-                <p><span className="font-semibold">Sabab:</span> {suggestion.reason}</p>
+                <p><span className="font-semibold">Family:</span> {analysis.family.name}</p>
+                <p><span className="font-semibold">Visual grammar:</span> {analysis.family.visualGrammar}</p>
+                <p><span className="font-semibold">Status:</span> {analysis.family.status}</p>
+                <p><span className="font-semibold">Confidence:</span> {(analysis.confidence * 100).toFixed(0)}%</p>
+                <p><span className="font-semibold">Sabab:</span> {analysis.reasons[0] ?? "registry fallback"}</p>
+                <p><span className="font-semibold">Custom formula:</span> {draft.formula}</p>
               </div>
               <button
                 type="button"
-                onClick={() => onOpenMode(suggestion.mode)}
+                onClick={() => (mode === "custom" ? onOpenFamily(analysis.family.id) : onOpenMode(mode))}
                 className="mt-4 flex h-10 w-full items-center justify-center gap-2 rounded bg-[#14222b] px-3 text-sm font-medium text-white"
               >
                 <Sparkles size={16} />
-                {suggestion.title} visualizer&apos;ga o&apos;tish
+                {mode === "custom" ? `${analysis.family.name} preview` : `${analysis.family.name} visualizer`} ga o‘tish
               </button>
             </div>
           </div>
@@ -725,16 +1286,73 @@ function CustomLab({ onOpenMode }: { onOpenMode: (mode: LabMode) => void }) {
           <div className="grid h-full gap-4 lg:grid-cols-2">
             <div className="rounded border border-[#17313a] bg-[#03161d] p-5">
               <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#7ea0ad]">Detected family</div>
-              <div className="mt-3 text-3xl font-semibold text-white">{suggestion.title}</div>
-              <p className="mt-4 text-sm leading-7 text-[#9fb3bb]">{suggestion.reason}</p>
+              <div className="mt-3 text-3xl font-semibold text-white">{analysis.family.name}</div>
+              <p className="mt-4 text-sm leading-7 text-[#9fb3bb]">{analysis.family.summary}</p>
+              <p className="mt-3 text-xs font-mono uppercase tracking-[0.12em] text-[#7ea0ad]">{analysis.family.visualGrammar}</p>
             </div>
             <div className="rounded border border-[#17313a] bg-[#071922] p-5">
               <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#7ea0ad]">Planned visual</div>
-              <div className="mt-3 text-xl font-semibold text-white">{suggestion.visual}</div>
+              <div className="mt-3 text-xl font-semibold text-white">{draft.schemeName}</div>
               <div className="mt-4 rounded border border-[#17313a] bg-black/30 p-4 font-mono text-sm leading-6 text-[#d7e3ea] whitespace-pre-wrap">
-                {formula}
+                {draft.formula}
+              </div>
+              <div className="mt-4">
+                <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#7ea0ad]">Default schemes</div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {analysis.schemeHints.slice(0, 4).map((scheme) => (
+                    <span key={scheme.id} className="rounded bg-[#0f1720] px-2 py-1 text-[11px] font-medium text-[#d7e3ea]">
+                      {scheme.name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div className="mt-4 text-xs leading-5 text-[#7ea0ad]">
+                Draft registry target: {draft.familyName} | {draft.visualGrammar} | {draft.status}
               </div>
             </div>
+            <div className="rounded border border-[#17313a] bg-[#041118] p-5 lg:col-span-2">
+              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#7ea0ad]">Operator registry</div>
+              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {operatorFamilies.map((family) => (
+                  <div key={family.id} className="rounded border border-[#17313a] bg-[#061821] p-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="text-sm font-semibold text-white">{family.name}</div>
+                        <div className="mt-1 text-[11px] font-mono uppercase tracking-[0.12em] text-[#7ea0ad]">{family.visualGrammar}</div>
+                      </div>
+                      <span
+                        className={`rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] ${
+                          family.status === "active" ? "bg-[#14532d] text-[#dcfce7]" : "bg-[#3f1d1d] text-[#fecaca]"
+                        }`}
+                      >
+                        {family.status}
+                      </span>
+                    </div>
+                    <p className="mt-3 text-sm leading-6 text-[#9fb3bb]">{family.summary}</p>
+                    <p className="mt-2 text-xs leading-5 text-[#7ea0ad]">{family.schemes.length} schemes</p>
+                    <div className="mt-3 flex flex-wrap gap-1">
+                      {family.schemes.slice(0, 3).map((scheme) => (
+                        <span key={scheme.id} className="rounded bg-[#0f1720] px-2 py-1 text-[10px] font-medium text-[#d7e3ea]">
+                          {scheme.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {sceneSpec ? (
+              <div className="rounded border border-[#17313a] bg-[#041118] p-5 lg:col-span-2">
+                <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#7ea0ad]">Operator family preview</div>
+                <div className="mt-3 overflow-hidden rounded border border-[#17313a] bg-[#071922]">
+                  <VisualScene spec={sceneSpec} cameraMode="follow-spec" className="h-[420px] w-full" />
+                </div>
+                <p className="mt-3 text-sm leading-6 text-[#9fb3bb]">
+                  Preview family geometriyasini ko‘rsatadi: matrix’da transform, root finding’da convergence path, optimization’da landscape descent,
+                  probability’da stochastic ensemble, interpolation’da curve reconstruction chiqadi.
+                </p>
+              </div>
+            ) : null}
           </div>
         </div>
       </section>
@@ -742,33 +1360,88 @@ function CustomLab({ onOpenMode }: { onOpenMode: (mode: LabMode) => void }) {
   );
 }
 
-function suggestVisualizer(input: string): CustomSuggestion {
-  const source = input.toLowerCase();
-  if (source.includes("u_t") || source.includes("u_xx") || source.includes("partial") || source.includes("∂")) {
-    return {
-      mode: "pde",
-      title: "PDE",
-      visual: "space-time heatmap + final profile + error curve",
-      reason: "Formulada vaqt bo‘yicha va fazo bo‘yicha hosilalar bor, demak bu evolyutsion maydon.",
-      method: "Crank-Nicolson yoki FTCS",
-    };
-  }
-  if (source.includes("int") || source.includes("∫") || source.includes("dA".toLowerCase()) || source.includes("dv")) {
-    return {
-      mode: "integral",
-      title: "Integral",
-      visual: "panels / surface mesh / volume columns",
-      reason: "Matnda integral operatori yoki o‘lchov elementi ko‘rindi, demak yig‘indi-geometriya vizuali kerak.",
-      method: "Simpson yoki Trapezoid",
-    };
-  }
-  return {
-    mode: "ode",
-    title: "ODE",
-    visual: "trajectory + vector field + stage lens",
-    reason: "Ko‘rinishidan bu differensial oqim yoki step-by-step trajectory oilasiga yaqin.",
-    method: "RK4 yoki Symplectic Euler",
-  };
+function familyToMode(familyId: string): LabMode {
+  if (familyId === "ode") return "ode";
+  if (familyId === "integral") return "integral";
+  if (familyId === "pde") return "pde";
+  return "custom";
+}
+
+function OperatorFamilyNav({
+  current,
+  onOpenFamily,
+}: {
+  current: string;
+  onOpenFamily: (familyId: string) => void;
+}) {
+  const items = [...operatorFamilies.map((family) => family.id), "custom"];
+
+  return (
+    <div className="mt-4 grid grid-cols-2 gap-2">
+      {items.map((familyId) => {
+        const meta = familyButtonMeta[familyId];
+        const active = familyId === current;
+
+        return (
+          <button
+            key={familyId}
+            type="button"
+            onClick={() => onOpenFamily(familyId)}
+            className={`flex h-9 items-center justify-center gap-2 rounded px-3 text-sm font-medium ${
+              active ? "bg-[#14222b] text-white" : "border border-[#cfd9dd] bg-white hover:bg-[#eef4f5]"
+            }`}
+          >
+            {meta.icon}
+            {meta.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function Slider({
+  label,
+  value,
+  min,
+  max,
+  step,
+  color,
+  onChange,
+  format: formatValue,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  color: string;
+  onChange: (value: number) => void;
+  format?: (value: number) => string;
+}) {
+  const id = `slider-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+
+  return (
+    <div className="mt-4 first:mt-0">
+      <label htmlFor={id} className="flex items-center justify-between text-sm font-semibold text-[#31424b]">
+        {label}
+        <span className="font-mono" style={{ color }}>
+          {formatValue ? formatValue(value) : Number.isInteger(step) ? Math.round(value) : value.toFixed(2)}
+        </span>
+      </label>
+      <input
+        id={id}
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="mt-3 w-full"
+        style={{ accentColor: color }}
+      />
+    </div>
+  );
 }
 
 function ToggleButton({ active, icon, label, onClick }: { active: boolean; icon: ReactNode; label: string; onClick: () => void }) {

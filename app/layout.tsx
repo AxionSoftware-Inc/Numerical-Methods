@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "MethodsLab",
-  description: "A 3D laboratory for analyzing mathematical methods.",
+  title: "OperatorLab",
+  description: "A 3D laboratory for analyzing numerical operators and their geometry.",
 };
 
 export default function RootLayout({

@@ -1,6 +1,6 @@
 # @methodslab/methods-engine
 
-Independent math and trace engine for MethodsLab.
+Independent math and trace engine for OperatorLab.
 
 This package contains method contracts, numerical examples, integration traces,
 energy/stability analysis, and presets. It does not import React, Three.js, or
@@ -17,3 +17,7 @@ import { methods, examples, integrationMethods } from "@methodslab/methods-engin
 
 - Use this package to compute structured traces and analysis data.
 - Use `@methodslab/visual-engine` to render those traces.
+
+## Operator Registry
+
+- [OPERATOR_REGISTRY.md](/Users/macbookpro/Documents/Numerical-Methods/packages/methods-engine/OPERATOR_REGISTRY.md)

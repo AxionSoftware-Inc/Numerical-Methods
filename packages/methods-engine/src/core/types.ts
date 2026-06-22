@@ -274,3 +274,252 @@ export type PdeTrace = {
     theta: number;
   };
 };
+
+export type OperatorFamilyId =
+  | "ode"
+  | "integral"
+  | "pde"
+  | "matrix"
+  | "root-finding"
+  | "optimization"
+  | "probability"
+  | "interpolation";
+
+export type OperatorGrammarId =
+  | "trajectory-flow"
+  | "partition-accumulation"
+  | "field-mesh"
+  | "transform-basis"
+  | "convergence-path"
+  | "landscape-descent"
+  | "stochastic-path"
+  | "curve-reconstruction";
+
+export type OperatorFamilyStatus = "active" | "planned";
+export type OperatorSchemeStatus = "implemented" | "planned";
+
+export type OperatorSchemeSpec = {
+  id: string;
+  name: string;
+  formula: string;
+  color: string;
+  geometry: string;
+  status: OperatorSchemeStatus;
+  order?: string;
+  stability?: string;
+};
+
+export type OperatorFamilySpec = {
+  id: OperatorFamilyId;
+  name: string;
+  summary: string;
+  visualGrammar: OperatorGrammarId;
+  status: OperatorFamilyStatus;
+  schemes: readonly OperatorSchemeSpec[];
+  exampleIds: readonly string[];
+  notes?: string;
+};
+
+export type OperatorRegistry = {
+  families: readonly OperatorFamilySpec[];
+  familiesById: Record<OperatorFamilyId, OperatorFamilySpec>;
+};
+
+export type OperatorFamilyMatch = {
+  family: OperatorFamilySpec;
+  score: number;
+  reasons: string[];
+};
+
+export type OperatorAnalysis = {
+  input: string;
+  normalizedInput: string;
+  family: OperatorFamilySpec;
+  score: number;
+  confidence: number;
+  reasons: string[];
+  schemeHints: readonly OperatorSchemeSpec[];
+  customSchemeName: string;
+  customSchemeFormula: string;
+};
+
+export type CustomSchemeDraft = {
+  familyId: OperatorFamilyId;
+  familyName: string;
+  schemeName: string;
+  formula: string;
+  visualGrammar: OperatorGrammarId;
+  status: OperatorFamilyStatus;
+};
+
+export type ProbabilityMethodId = string;
+export type ProbabilityExampleId = string;
+
+export type ProbabilityMethodSpec = {
+  id: ProbabilityMethodId;
+  name: string;
+  formula: string;
+  color: string;
+  order: string;
+  stability: string;
+  geometry: string;
+  noiseCorrection: number;
+  sampler: "euler" | "milstein" | "exact-transition";
+};
+
+export type ProbabilityExampleSpec = {
+  id: ProbabilityExampleId;
+  name: string;
+  shortName: string;
+  equation: string;
+  initial: number;
+  endTime: number;
+  defaultSteps: number;
+  minSteps: number;
+  maxSteps: number;
+  defaultPaths: number;
+  minPaths: number;
+  maxPaths: number;
+  drift: number;
+  volatility: number;
+  meanReversion?: number;
+  longRunMean?: number;
+  payoffLevel: number;
+  exactMean: (t: number, options: { initial: number; drift: number; volatility: number; meanReversion?: number; longRunMean?: number }) => number;
+  exactVariance: (t: number, options: { initial: number; drift: number; volatility: number; meanReversion?: number; longRunMean?: number }) => number;
+  interpretation: string;
+};
+
+export type ProbabilityPathSample = {
+  index: number;
+  t: number;
+  value: number;
+};
+
+export type ProbabilityPathTrace = {
+  id: number;
+  color: string;
+  samples: ProbabilityPathSample[];
+  terminal: number;
+  payoff: number;
+};
+
+export type ProbabilityMomentSample = {
+  index: number;
+  t: number;
+  mean: number;
+  variance: number;
+  exactMean: number;
+  exactVariance: number;
+  standardError: number;
+};
+
+export type ProbabilityHistogramBin = {
+  center: number;
+  count: number;
+  probability: number;
+};
+
+export type ProbabilityConvergenceSample = {
+  paths: number;
+  estimate: number;
+  stderr: number;
+  absError: number;
+};
+
+export type ProbabilityTrace = {
+  paths: ProbabilityPathTrace[];
+  moments: ProbabilityMomentSample[];
+  histogram: ProbabilityHistogramBin[];
+  convergence: ProbabilityConvergenceSample[];
+  terminalMean: number;
+  terminalVariance: number;
+  exactTerminalMean: number;
+  exactTerminalVariance: number;
+  payoffEstimate: number;
+  payoffStdError: number;
+  confidenceInterval: [number, number];
+  probabilityAbovePayoff: number;
+  quantile05: number;
+  quantile95: number;
+  expectedShortfall05: number;
+  meanAbsError: number;
+  varianceAbsError: number;
+  payoffLevel: number;
+  dt: number;
+  steps: number;
+  pathCount: number;
+  valueRange: [number, number];
+  metadata: {
+    methodId: string;
+    methodName: string;
+    exampleId: string;
+    exampleName: string;
+    drift: number;
+    volatility: number;
+    seed: number;
+  };
+};
+
+export type OptimizationMethodId = string;
+export type OptimizationExampleId = string;
+
+export type OptimizationMethodSpec = {
+  id: OptimizationMethodId;
+  name: string;
+  formula: string;
+  color: string;
+  order: string;
+  stability: string;
+  geometry: string;
+  stepScale: number;
+  momentum?: number;
+};
+
+export type OptimizationExampleSpec = {
+  id: OptimizationExampleId;
+  name: string;
+  shortName: string;
+  formula: string;
+  initial: [number, number];
+  optimum: [number, number];
+  defaultStep: number;
+  minStep: number;
+  maxStep: number;
+  defaultIterations: number;
+  minIterations: number;
+  maxIterations: number;
+  xRange: [number, number];
+  yRange: [number, number];
+  value: (x: number, y: number) => number;
+  gradient: (x: number, y: number) => [number, number];
+  hessian: (x: number, y: number) => [[number, number], [number, number]];
+  interpretation: string;
+};
+
+export type OptimizationStepTrace = {
+  index: number;
+  point: [number, number];
+  value: number;
+  gradient: [number, number];
+  gradientNorm: number;
+  step: [number, number];
+  distanceToOptimum: number;
+};
+
+export type OptimizationTrace = {
+  steps: OptimizationStepTrace[];
+  finalValue: number;
+  finalGradientNorm: number;
+  finalDistance: number;
+  minValue: number;
+  maxValue: number;
+  stepSize: number;
+  iterations: number;
+  metadata: {
+    methodId: string;
+    methodName: string;
+    exampleId: string;
+    exampleName: string;
+  };
+};

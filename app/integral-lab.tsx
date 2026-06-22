@@ -17,7 +17,7 @@ import type {
   SurfaceIntegralExampleId,
   VolumeIntegralExampleId,
 } from "@methodslab/methods-engine/core";
-import { AreaChart, BarChart3, Box, FunctionSquare, GitCompare, RotateCcw, ScanSearch, Sigma, Sparkles, Thermometer } from "lucide-react";
+import { Activity, AreaChart, BarChart3, Box, Crosshair, FunctionSquare, GitCompare, RotateCcw, ScanSearch, Sigma, Sparkles, Thermometer, TrendingUp, Waves } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
@@ -25,22 +25,50 @@ export type IntegralLabProps = {
   onSwitchToOde: () => void;
   onSwitchToPde: () => void;
   onSwitchToCustom: () => void;
+  onOpenFamily?: (familyId: string) => void;
 };
 
 type IntegralKind = "area" | "surface" | "volume";
 
-export default function IntegralLab({ onSwitchToOde, onSwitchToPde, onSwitchToCustom }: IntegralLabProps) {
+export default function IntegralLab({ onSwitchToOde, onSwitchToPde, onSwitchToCustom, onOpenFamily }: IntegralLabProps) {
   const [integralKind, setIntegralKind] = useState<IntegralKind>("area");
 
   if (integralKind === "surface") {
-    return <SurfaceIntegralLab activeKind={integralKind} onSetKind={setIntegralKind} onSwitchToOde={onSwitchToOde} onSwitchToPde={onSwitchToPde} onSwitchToCustom={onSwitchToCustom} />;
+    return (
+      <SurfaceIntegralLab
+        activeKind={integralKind}
+        onSetKind={setIntegralKind}
+        onSwitchToOde={onSwitchToOde}
+        onSwitchToPde={onSwitchToPde}
+        onSwitchToCustom={onSwitchToCustom}
+        onOpenFamily={onOpenFamily}
+      />
+    );
   }
 
   if (integralKind === "volume") {
-    return <VolumeIntegralLab activeKind={integralKind} onSetKind={setIntegralKind} onSwitchToOde={onSwitchToOde} onSwitchToPde={onSwitchToPde} onSwitchToCustom={onSwitchToCustom} />;
+    return (
+      <VolumeIntegralLab
+        activeKind={integralKind}
+        onSetKind={setIntegralKind}
+        onSwitchToOde={onSwitchToOde}
+        onSwitchToPde={onSwitchToPde}
+        onSwitchToCustom={onSwitchToCustom}
+        onOpenFamily={onOpenFamily}
+      />
+    );
   }
 
-  return <AreaIntegralLab activeKind={integralKind} onSetKind={setIntegralKind} onSwitchToOde={onSwitchToOde} onSwitchToPde={onSwitchToPde} onSwitchToCustom={onSwitchToCustom} />;
+  return (
+    <AreaIntegralLab
+      activeKind={integralKind}
+      onSetKind={setIntegralKind}
+      onSwitchToOde={onSwitchToOde}
+      onSwitchToPde={onSwitchToPde}
+      onSwitchToCustom={onSwitchToCustom}
+      onOpenFamily={onOpenFamily}
+    />
+  );
 }
 
 function AreaIntegralLab({
@@ -49,6 +77,7 @@ function AreaIntegralLab({
   onSwitchToOde,
   onSwitchToPde,
   onSwitchToCustom,
+  onOpenFamily,
 }: IntegralLabProps & { activeKind: IntegralKind; onSetKind: (kind: IntegralKind) => void }) {
   const [methodId, setMethodId] = useState<IntegrationMethodId>("trapezoid");
   const [exampleId, setExampleId] = useState<IntegrationExampleId>("smooth-wave");
@@ -94,41 +123,18 @@ function AreaIntegralLab({
               <Sigma size={21} />
             </div>
             <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.12em] text-[#5c717c]">MethodsLab Integral</p>
+              <p className="text-sm font-semibold uppercase tracking-[0.12em] text-[#5c717c]">OperatorLab Integral</p>
               <h1 className="text-2xl font-semibold">{method.name} geometriyasi</h1>
             </div>
           </div>
 
-          <div className="mt-4 grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={onSwitchToOde}
-              className="flex h-9 items-center justify-center gap-2 rounded border border-[#cfd9dd] bg-white px-3 text-sm font-medium hover:bg-[#eef4f5]"
-            >
-              <Box size={16} />
-              ODE
-            </button>
-            <button type="button" className="flex h-9 items-center justify-center gap-2 rounded bg-[#14222b] px-3 text-sm font-medium text-white">
-              <Sigma size={16} />
-              Integral
-            </button>
-            <button
-              type="button"
-              onClick={onSwitchToPde}
-              className="flex h-9 items-center justify-center gap-2 rounded border border-[#cfd9dd] bg-white px-3 text-sm font-medium hover:bg-[#eef4f5]"
-            >
-              <Thermometer size={16} />
-              PDE
-            </button>
-            <button
-              type="button"
-              onClick={onSwitchToCustom}
-              className="flex h-9 items-center justify-center gap-2 rounded border border-[#cfd9dd] bg-white px-3 text-sm font-medium hover:bg-[#eef4f5]"
-            >
-              <Sparkles size={16} />
-              Custom
-            </button>
-          </div>
+          <OperatorFamilyNav
+            current="integral"
+            onSwitchToOde={onSwitchToOde}
+            onSwitchToPde={onSwitchToPde}
+            onSwitchToCustom={onSwitchToCustom}
+            onOpenFamily={onOpenFamily}
+          />
 
           <IntegralKindTabs activeKind={activeKind} onSetKind={onSetKind} />
 
@@ -271,6 +277,7 @@ function SurfaceIntegralLab({
   onSwitchToOde,
   onSwitchToPde,
   onSwitchToCustom,
+  onOpenFamily,
 }: IntegralLabProps & { activeKind: IntegralKind; onSetKind: (kind: IntegralKind) => void }) {
   const [exampleId, setExampleId] = useState<SurfaceIntegralExampleId>("surface-wave");
   const [showAnalysis, setShowAnalysis] = useState(true);
@@ -351,6 +358,7 @@ function VolumeIntegralLab({
   onSwitchToOde,
   onSwitchToPde,
   onSwitchToCustom,
+  onOpenFamily,
 }: IntegralLabProps & { activeKind: IntegralKind; onSetKind: (kind: IntegralKind) => void }) {
   const [exampleId, setExampleId] = useState<VolumeIntegralExampleId>("paraboloid-solid");
   const [showAnalysis, setShowAnalysis] = useState(true);
@@ -444,6 +452,7 @@ function MultiDimensionalIntegralLayout({
   onSwitchToOde,
   onSwitchToPde,
   onSwitchToCustom,
+  onOpenFamily,
   onToggleAnalysis,
   rangeLabel,
   resolution,
@@ -482,41 +491,18 @@ function MultiDimensionalIntegralLayout({
               <Sigma size={21} />
             </div>
             <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.12em] text-[#5c717c]">MethodsLab Integral</p>
+              <p className="text-sm font-semibold uppercase tracking-[0.12em] text-[#5c717c]">OperatorLab Integral</p>
               <h1 className="text-2xl font-semibold">{title}</h1>
             </div>
           </div>
 
-          <div className="mt-4 grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={onSwitchToOde}
-              className="flex h-9 items-center justify-center gap-2 rounded border border-[#cfd9dd] bg-white px-3 text-sm font-medium hover:bg-[#eef4f5]"
-            >
-              <Box size={16} />
-              ODE
-            </button>
-            <button type="button" className="flex h-9 items-center justify-center gap-2 rounded bg-[#14222b] px-3 text-sm font-medium text-white">
-              <Sigma size={16} />
-              Integral
-            </button>
-            <button
-              type="button"
-              onClick={onSwitchToPde}
-              className="flex h-9 items-center justify-center gap-2 rounded border border-[#cfd9dd] bg-white px-3 text-sm font-medium hover:bg-[#eef4f5]"
-            >
-              <Thermometer size={16} />
-              PDE
-            </button>
-            <button
-              type="button"
-              onClick={onSwitchToCustom}
-              className="flex h-9 items-center justify-center gap-2 rounded border border-[#cfd9dd] bg-white px-3 text-sm font-medium hover:bg-[#eef4f5]"
-            >
-              <Sparkles size={16} />
-              Custom
-            </button>
-          </div>
+          <OperatorFamilyNav
+            current="integral"
+            onSwitchToOde={onSwitchToOde}
+            onSwitchToPde={onSwitchToPde}
+            onSwitchToCustom={onSwitchToCustom}
+            onOpenFamily={onOpenFamily}
+          />
 
           <IntegralKindTabs activeKind={activeKind} onSetKind={onSetKind} />
 
@@ -631,6 +617,75 @@ function IntegralKindTabs({ activeKind, onSetKind }: { activeKind: IntegralKind;
           {item.label}
         </button>
       ))}
+    </div>
+  );
+}
+
+function OperatorFamilyNav({
+  current,
+  onSwitchToOde,
+  onSwitchToPde,
+  onSwitchToCustom,
+  onOpenFamily,
+}: {
+  current: "integral";
+  onSwitchToOde: () => void;
+  onSwitchToPde: () => void;
+  onSwitchToCustom: () => void;
+  onOpenFamily?: (familyId: string) => void;
+}) {
+  const items = [
+    { id: "ode", label: "ODE", icon: <Box size={16} /> },
+    { id: "integral", label: "Integral", icon: <Sigma size={16} /> },
+    { id: "pde", label: "PDE", icon: <Thermometer size={16} /> },
+    { id: "matrix", label: "Matrix", icon: <GitCompare size={16} /> },
+    { id: "root-finding", label: "Root", icon: <Crosshair size={16} /> },
+    { id: "optimization", label: "Optim", icon: <TrendingUp size={16} /> },
+    { id: "probability", label: "Prob", icon: <Activity size={16} /> },
+    { id: "interpolation", label: "Interp", icon: <Waves size={16} /> },
+    { id: "custom", label: "Custom", icon: <Sparkles size={16} /> },
+  ];
+
+  function openFamily(id: string) {
+    if (id === "ode") {
+      onSwitchToOde();
+      return;
+    }
+
+    if (id === "pde") {
+      onSwitchToPde();
+      return;
+    }
+
+    if (id === "custom") {
+      onSwitchToCustom();
+      return;
+    }
+
+    if (id !== "integral" && onOpenFamily) {
+      onOpenFamily(id);
+    }
+  }
+
+  return (
+    <div className="mt-4 grid grid-cols-2 gap-2">
+      {items.map((item) => {
+        const active = item.id === current;
+
+        return (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => openFamily(item.id)}
+            className={`flex h-9 items-center justify-center gap-2 rounded px-3 text-sm font-medium ${
+              active ? "bg-[#14222b] text-white" : "border border-[#cfd9dd] bg-white hover:bg-[#eef4f5]"
+            }`}
+          >
+            {item.icon}
+            {item.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
