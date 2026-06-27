@@ -297,6 +297,24 @@ export type OperatorGrammarId =
 
 export type OperatorFamilyStatus = "active" | "planned";
 export type OperatorSchemeStatus = "implemented" | "planned";
+export type OperatorApplicationProfile = {
+  id: "ai-ml" | "scientific-computing" | "finance-risk" | "simulation-control" | "signal-approximation";
+  label: string;
+  summary: string;
+};
+
+export type OperatorWorkbenchReadiness = "prototype" | "partial" | "ready";
+
+export type OperatorWorkbenchCapability = {
+  traceScene: boolean;
+  comparison: boolean;
+  benchmark: boolean;
+  customMethod: boolean;
+  composition: boolean;
+  centralVisual: boolean;
+  readiness: OperatorWorkbenchReadiness;
+  nextFocus?: string;
+};
 
 export type OperatorSchemeSpec = {
   id: string;
@@ -317,12 +335,114 @@ export type OperatorFamilySpec = {
   status: OperatorFamilyStatus;
   schemes: readonly OperatorSchemeSpec[];
   exampleIds: readonly string[];
+  applications?: readonly OperatorApplicationProfile[];
   notes?: string;
+  workbench?: OperatorWorkbenchCapability;
 };
 
 export type OperatorRegistry = {
   families: readonly OperatorFamilySpec[];
   familiesById: Record<OperatorFamilyId, OperatorFamilySpec>;
+};
+
+export type OperatorCompositionMode = "pipeline" | "fused" | "comparison";
+
+export type OperatorCompositionNodeRole = "source" | "transform" | "analyzer" | "sink";
+
+export type OperatorCompositionChannel =
+  | "state"
+  | "residual"
+  | "spectrum"
+  | "samples"
+  | "geometry"
+  | "control"
+  | "diagnostic";
+
+export type OperatorCompositionNodeSpec = {
+  id: string;
+  familyId: OperatorFamilyId;
+  familyName: string;
+  schemeId: string;
+  schemeName: string;
+  visualGrammar: OperatorGrammarId;
+  color: string;
+  formula: string;
+  role: OperatorCompositionNodeRole;
+  summary?: string;
+};
+
+export type OperatorCompositionEdgeSpec = {
+  id: string;
+  from: string;
+  to: string;
+  channel: OperatorCompositionChannel;
+  label?: string;
+};
+
+export type OperatorCompositionMetricSpec = {
+  id: string;
+  label: string;
+  value: number;
+  unit?: string;
+  emphasis?: "higher-better" | "lower-better" | "neutral";
+  summary?: string;
+};
+
+export type OperatorCompositionComparisonSpec = {
+  baselineNodeId: string;
+  candidateNodeId: string;
+  label: string;
+  summary?: string;
+  metrics?: readonly OperatorCompositionMetricSpec[];
+};
+
+export type OperatorCompositionSpec = {
+  id: string;
+  name: string;
+  mode: OperatorCompositionMode;
+  summary: string;
+  visualGrammar: OperatorGrammarId;
+  operators: readonly OperatorCompositionNodeSpec[];
+  connections: readonly OperatorCompositionEdgeSpec[];
+  focusFamilyId?: OperatorFamilyId;
+  comparisons?: readonly OperatorCompositionComparisonSpec[];
+};
+
+export type OperatorCompositionValidation = {
+  valid: boolean;
+  issues: string[];
+  warnings: string[];
+  operatorCount: number;
+  connectionCount: number;
+  familyIds: OperatorFamilyId[];
+  grammars: OperatorGrammarId[];
+  isCrossFamily: boolean;
+};
+
+export type OperatorWorkbenchFamilyStatus = {
+  familyId: OperatorFamilyId;
+  familyName: string;
+  readiness: OperatorWorkbenchReadiness;
+  traceScene: boolean;
+  comparison: boolean;
+  benchmark: boolean;
+  customMethod: boolean;
+  composition: boolean;
+  centralVisual: boolean;
+  nextFocus?: string;
+};
+
+export type OperatorWorkbenchPreviewMode = "overlay" | "split" | "graph-only";
+
+export type OperatorWorkbenchCompatibilityKind = "compatible" | "comparable" | "incompatible";
+
+export type OperatorWorkbenchCompatibility = {
+  kind: OperatorWorkbenchCompatibilityKind;
+  previewMode: OperatorWorkbenchPreviewMode;
+  reason: string;
+  warnings: string[];
+  sharedFamily: boolean;
+  sharedGrammar: boolean;
 };
 
 export type OperatorFamilyMatch = {
@@ -364,7 +484,7 @@ export type ProbabilityMethodSpec = {
   stability: string;
   geometry: string;
   noiseCorrection: number;
-  sampler: "euler" | "milstein" | "exact-transition";
+  sampler: "euler" | "milstein" | "exact-transition" | "antithetic-transition";
 };
 
 export type ProbabilityExampleSpec = {
@@ -445,6 +565,12 @@ export type ProbabilityTrace = {
   expectedShortfall05: number;
   meanAbsError: number;
   varianceAbsError: number;
+  strongErrorEstimate: number;
+  weakErrorEstimate: number;
+  pathwiseQuantile95Error: number;
+  terminalSkewness: number;
+  terminalExcessKurtosis: number;
+  tailBalance: number;
   payoffLevel: number;
   dt: number;
   steps: number;
@@ -474,6 +600,18 @@ export type OptimizationMethodSpec = {
   geometry: string;
   stepScale: number;
   momentum?: number;
+  epsilon?: number;
+  customUpdate?: (context: {
+    x: number;
+    y: number;
+    gx: number;
+    gy: number;
+    vx: number;
+    vy: number;
+    eta: number;
+    beta: number;
+    stepScale: number;
+  }) => [number, number];
 };
 
 export type OptimizationExampleSpec = {
@@ -516,6 +654,253 @@ export type OptimizationTrace = {
   maxValue: number;
   stepSize: number;
   iterations: number;
+  oscillationCount: number;
+  monotoneIncreaseCount: number;
+  averageGradientAlignment: number;
+  averageConditionNumber: number;
+  finalConditionNumber: number;
+  negativeCurvatureSteps: number;
+  largestAcceptedStep: number;
+  metadata: {
+    methodId: string;
+    methodName: string;
+    exampleId: string;
+    exampleName: string;
+  };
+};
+
+export type MatrixMethodId = string;
+export type MatrixExampleId = string;
+export type MatrixMethodMode = "linear-system" | "eigen";
+
+export type MatrixMethodSpec = {
+  id: MatrixMethodId;
+  name: string;
+  formula: string;
+  color: string;
+  order: string;
+  stability: string;
+  geometry: string;
+  mode: MatrixMethodMode;
+  relaxation?: number;
+  family?: "stationary" | "krylov" | "eigen" | "least-squares" | "factorization";
+};
+
+export type MatrixExampleSpec = {
+  id: MatrixExampleId;
+  name: string;
+  shortName: string;
+  matrix: [[number, number], [number, number]];
+  rhs: [number, number];
+  initial: [number, number];
+  sourceMatrix?: Array<[number, number]>;
+  observations?: number[];
+  sourceLabel?: string;
+  exactSolution: [number, number];
+  dominantEigenvector: [number, number];
+  dominantEigenvalue: number;
+  smallestEigenvector: [number, number];
+  smallestEigenvalue: number;
+  defaultIterations: number;
+  minIterations: number;
+  maxIterations: number;
+  interpretation: string;
+  tags?: string[];
+};
+
+export type MatrixStepTrace = {
+  index: number;
+  vector: [number, number];
+  residualVector: [number, number];
+  residual: number;
+  error: number;
+  stepNorm: number;
+  spectralEstimate: number;
+  angleToTarget: number;
+  contraction: number;
+  turnAngle: number;
+  rayleighDrift: number;
+};
+
+export type MatrixTrace = {
+  steps: MatrixStepTrace[];
+  matrix: [[number, number], [number, number]];
+  rhs: [number, number];
+  sourceMatrix?: Array<[number, number]>;
+  observations?: number[];
+  transformedBasis: [[number, number], [number, number]];
+  exactSolution: [number, number];
+  targetVector: [number, number];
+  dominantEigenvalue: number;
+  smallestEigenvalue: number;
+  spectralRadius: number;
+  conditionNumber: number;
+  iterations: number;
+  mode: MatrixMethodMode;
+  targetLabel: string;
+  iterationRadius: number;
+  eigenGap: number;
+  initialResidual: number;
+  improvementFactor: number;
+  averageContraction: number;
+  turnCount: number;
+  residualAxisSkew: number;
+  rayleighDrift: number;
+  finalRayleighError: number;
+  convergenceKind: "converging" | "stalling" | "diverging" | "oscillating";
+  convergenceReason: string;
+  diagonalDominance: number;
+  isSpd: boolean;
+  problemKind: "square-system" | "least-squares" | "covariance";
+  fitResidual: number;
+  metadata: {
+    methodId: string;
+    methodName: string;
+    exampleId: string;
+    exampleName: string;
+  };
+};
+
+export type RootFindingMethodId = string;
+export type RootFindingExampleId = string;
+
+export type RootFindingMethodSpec = {
+  id: RootFindingMethodId;
+  name: string;
+  formula: string;
+  color: string;
+  order: string;
+  stability: string;
+  geometry: string;
+  requiresDerivative?: boolean;
+  usesBracket?: boolean;
+  damping?: number;
+  customStep?: (context: {
+    x: number;
+    fx: number;
+    dfx: number;
+    xPrev: number;
+    fPrev: number;
+    a: number;
+    b: number;
+    fa: number;
+    fb: number;
+    mid: number;
+  }) => number;
+};
+
+export type RootFindingExampleSpec = {
+  id: RootFindingExampleId;
+  name: string;
+  shortName: string;
+  equation: string;
+  xRange: [number, number];
+  initialBracket: [number, number];
+  initialPair: [number, number];
+  newtonStart: number;
+  exactRoot: number;
+  defaultIterations: number;
+  minIterations: number;
+  maxIterations: number;
+  evaluate: (x: number) => number;
+  derivative: (x: number) => number;
+  interpretation: string;
+};
+
+export type RootFindingLineTrace = {
+  from: [number, number];
+  to: [number, number];
+  kind: "secant" | "tangent" | "bracket";
+};
+
+export type RootFindingStepTrace = {
+  index: number;
+  x: number;
+  fx: number;
+  error: number;
+  stepSize: number;
+  bracket: [number, number];
+  line?: RootFindingLineTrace;
+  intervalWidth: number;
+};
+
+export type RootFindingTrace = {
+  steps: RootFindingStepTrace[];
+  initialResidual: number;
+  finalResidual: number;
+  finalError: number;
+  finalIntervalWidth: number;
+  iterations: number;
+  residualReduction: number;
+  averageContraction: number;
+  bracketRetentionRate: number;
+  derivativeStress: number;
+  oscillationCount: number;
+  stagnationCount: number;
+  metadata: {
+    methodId: string;
+    methodName: string;
+    exampleId: string;
+    exampleName: string;
+  };
+};
+
+export type InterpolationMethodId = string;
+export type InterpolationExampleId = string;
+
+export type InterpolationMethodSpec = {
+  id: InterpolationMethodId;
+  name: string;
+  formula: string;
+  color: string;
+  order: string;
+  stability: string;
+  geometry: string;
+  support: "global" | "local";
+  nodeLayout?: "uniform" | "chebyshev";
+  nodeBias?: number;
+};
+
+export type InterpolationExampleSpec = {
+  id: InterpolationExampleId;
+  name: string;
+  shortName: string;
+  formula: string;
+  xRange: [number, number];
+  yRange: [number, number];
+  defaultNodes: number;
+  minNodes: number;
+  maxNodes: number;
+  evaluate: (x: number) => number;
+  interpretation: string;
+};
+
+export type InterpolationNode = {
+  index: number;
+  x: number;
+  y: number;
+};
+
+export type InterpolationSample = {
+  x: number;
+  exact: number;
+  estimate: number;
+  error: number;
+};
+
+export type InterpolationTrace = {
+  nodes: InterpolationNode[];
+  samples: InterpolationSample[];
+  maxAbsError: number;
+  rmsError: number;
+  roughness: number;
+  edgeMaxError: number;
+  centerMaxError: number;
+  totalVariationRatio: number;
+  overshootArea: number;
+  signChangeCount: number;
+  nodeCount: number;
+  nodeLayout: "uniform" | "chebyshev";
   metadata: {
     methodId: string;
     methodName: string;

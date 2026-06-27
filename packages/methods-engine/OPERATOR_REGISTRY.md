@@ -76,21 +76,127 @@ Undan family’larni topish, ularga tegishli scheme’larni ko‘rish va custom 
 
 ## 5. Custom method qo‘shish
 
+Endi custom method alohida tashqi rejim emas, har bir operator family ichida ham ishlaydi.
+
 Foydalanuvchi formula yoki latex kiritganda tizim quyidagilarni qiladi:
 
 1. matn normalizatsiya qilinadi
-2. family keyword’lar bo‘yicha taxmin qilinadi
-3. family ning default schemes ro‘yxati olinadi
-4. custom scheme draft yaratiladi
-5. UI family vizualizatsiyasini va custom formula skeleton’ini ko‘rsatadi
+2. family keyword’lar bo‘yicha taxmin qilinadi yoki foydalanuvchi turgan family bevosita olinadi
+3. shu family uchun `compileCustom...Method(...)` ishlaydi
+4. formula eng yaqin executable method oilasiga compile qilinadi
+5. parsed parametrlar (`theta`, `omega`, `eta`, `beta` va h.k.) ajratib olinadi
+6. UI shu family’ning o‘z analyzer’ida custom method’ni preset methodlar bilan bir qatorda ishlatadi
+7. benchmark sahifasi ham `formula=` query orqali shu custom method’ni qayta tiklaydi
 
-Custom method hozircha:
+Custom method pipeline hozir:
 
 - registry bilan bog‘langan
 - family ichida analiz qilinadigan
-- keyinchalik parser/compiler bilan chuqurlashtiriladigan
+- benchmark bilan ham bog‘langan
+- shared expression parser bilan parametrlarni hisoblay oladigan
+- keyinchalik full symbolic parser/compiler bilan yanada chuqurlashtiriladigan
 
-## 6. Tavsiya etilgan kengaytirish tartibi
+## 6. Formula sintaksisi
+
+Custom compiler endi oddiy keyword qidirish bilan cheklanmaydi. U:
+
+- plain text
+- oddiy formula
+- ba'zi LaTeX belgilarini (`\theta`, `\eta`, `\omega`, `\beta`, `\frac{...}{...}`)
+
+normalizatsiya qilib, assignment'larni o‘qiy oladi.
+
+Ishlaydigan yozish usullari:
+
+```txt
+theta = 0.5
+eta = 0.02
+omega: 1.15
+beta = 0.9
+a2 = 2/3; b1 = 1/4; b2 = 3/4; c2 = 2/3
+```
+
+Endi ba'zi family'larda update-rule assignment ham ishlaydi:
+
+```txt
+xnext = x - eta * gx
+ynext = y - eta * gy + beta * vy
+```
+
+Yoki root finding uchun:
+
+```txt
+xnext = x - lambda * fx / df
+```
+
+Parametr expression'lari oldingi assignment'larga tayana oladi:
+
+```txt
+eta = 0.04
+beta = 0.8
+omega = eta / (1 - beta)
+```
+
+## 7. ODE uchun haqiqiy custom RK2
+
+`diff eq / ode` family ichida foydalanuvchi 2-stage explicit RK methodni to‘g‘ridan-to‘g‘ri bera oladi.
+
+Misol:
+
+```txt
+a2 = 2/3
+b1 = 1/4
+b2 = 3/4
+c2 = 2/3
+```
+
+Bu yozuv `Custom RK2 Tableau` sifatida compile qilinadi va analyzer uni preset methodlar kabi ishlatadi.
+
+Mazmuni:
+
+- `a2` - ikkinchi stage sampling nuqtasi
+- `c2` - vaqt bo‘yicha ikkinchi stage siljishi
+- `b1`, `b2` - final blend og‘irliklari
+
+Shu bilan user preset’da yo‘q RK2 variantlarini ham sinab ko‘rishi mumkin.
+
+## 8. Formula-executable family'lar
+
+Hozir quyidagi custom pipeline bosqichlari mavjud:
+
+- `matched`
+  family va method oilasi topiladi, lekin default executor ishlaydi
+- `parametric-executable`
+  default executor ishlaydi, lekin parametrlar formula ichidan override qilinadi
+- `formula-executable`
+  formula ichidagi update-rule to‘g‘ridan-to‘g‘ri executable qadamga aylanadi
+
+Hozir `formula-executable` holati ayniqsa quyidagilarda foydali:
+
+- `optimization`
+  `xnext`, `ynext` orqali
+- `root finding`
+  `xnext` orqali
+
+Masalan optimization uchun context symbol'lari:
+
+- `x`, `y`
+- `gx`, `gy`
+- `vx`, `vy`
+- `eta`
+- `beta`
+- `stepScale`
+
+Root finding uchun:
+
+- `x`
+- `fx`
+- `df` yoki `dfx`
+- `xprev`, `fprev`
+- `a`, `b`, `fa`, `fb`
+- `mid`
+
+## 9. Tavsiya etilgan kengaytirish tartibi
 
 Yangi family qo‘shishda shu tartibdan boring:
 
@@ -101,7 +207,37 @@ Yangi family qo‘shishda shu tartibdan boring:
 5. custom analysis keywords’ini kerak bo‘lsa kuchaytiring
 6. UI’da family card’ni ko‘rinadigan qiling
 
-## 7. Premium preview family'lar
+## 10. Family-specific custom compiler
+
+Hozir quyidagi compiler funksiyalar mavjud:
+
+- `compileCustomOdeMethod(...)`
+- `compileCustomPdeMethod(...)`
+- `compileCustomAreaIntegralMethod(...)`
+- `compileCustomSurfaceIntegralMethod(...)`
+- `compileCustomVolumeIntegralMethod(...)`
+- `compileCustomMatrixMethod(...)`
+- `compileCustomRootFindingMethod(...)`
+- `compileCustomInterpolationMethod(...)`
+- `compileCustomOptimizationMethod(...)`
+- `compileCustomProbabilityMethod(...)`
+
+Bu compiler’lar formula matnini o‘qib:
+
+- eng yaqin method oilasini tanlaydi
+- kerak bo‘lsa parametrlarni parse qiladi
+- executable method spec qaytaradi
+- analyzer va benchmark’ga bir xil methodni ulaydi
+
+Shared parser eksportlari:
+
+- `analyzeCustomFormula(...)`
+- `compileScalarExpression(...)`
+- `lookupAssignment(...)`
+
+Yangi family custom compiler yozayotganda shu parser helper'larini ishlatish tavsiya qilinadi.
+
+## 11. Premium preview family'lar
 
 Hozir custom preview’da quyidagi family’lar alohida ko‘rinadi:
 

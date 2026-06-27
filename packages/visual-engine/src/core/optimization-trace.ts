@@ -7,6 +7,7 @@ export function createOptimizationTraceSceneSpec(
   example: OptimizationExampleSpec,
   options: {
     showSurface?: boolean;
+    showPath?: boolean;
     showGradient?: boolean;
     showComparison?: boolean;
     focus?: number;
@@ -31,39 +32,41 @@ export function createOptimizationTraceSceneSpec(
 
   if (options.showSurface ?? true) {
     layers.push(createLandscapeLayer(example, trace));
-    layers.push(...createContourLayers(trace));
+    layers.push(...createContourLayers());
   }
 
-  layers.push(
-    createLineLayer("optimization-path", pathSegments(visibleSteps.map((step) => mapPoint(example, trace, step.point, step.value))), "#fb7185", {
-      opacity: 0.94,
-      linewidth: 2.4,
-      metadata: tooltip("Descent path", "Iteration trajectory on the loss landscape."),
-    }),
-    ...visibleSteps.slice(0, -1).map((step, index) =>
-      createArrowLayer(`optimization-step-${index}`, mapPoint(example, trace, step.point, step.value), mapPoint(example, trace, visibleSteps[index + 1]!.point, visibleSteps[index + 1]!.value), "#fb7185", {
-        headSize: 0.07,
-        shaftRadius: 0.012,
-        opacity: 0.72,
-        metadata: tooltip(`Step ${index}`, `f=${step.value.toExponential(2)}, ||grad||=${step.gradientNorm.toExponential(2)}`),
+  if (options.showPath ?? true) {
+    layers.push(
+      createLineLayer("optimization-path", pathSegments(visibleSteps.map((step) => mapPoint(example, trace, step.point, step.value))), "#fb7185", {
+        opacity: 0.94,
+        linewidth: 2.4,
+        metadata: tooltip("Descent path", "Iteration trajectory on the loss landscape."),
       }),
-    ),
-    createMarkerLayer("optimization-start", mapPoint(example, trace, trace.steps[0]!.point, trace.steps[0]!.value), "#f8fafc", {
-      radius: 0.045,
-      label: "start",
-      metadata: tooltip("Start point", `(${trace.steps[0]!.point.map((value) => value.toFixed(2)).join(", ")})`),
-    }),
-    createMarkerLayer("optimization-final", mapPoint(example, trace, visibleSteps[visibleSteps.length - 1]!.point, visibleSteps[visibleSteps.length - 1]!.value), "#fde047", {
-      radius: 0.06,
-      label: "current",
-      metadata: tooltip("Current iterate", `distance=${visibleSteps[visibleSteps.length - 1]!.distanceToOptimum.toExponential(2)}`),
-    }),
-    createMarkerLayer("optimization-optimum", mapPoint(example, trace, example.optimum, example.value(...example.optimum)), "#34d399", {
-      radius: 0.055,
-      label: "optimum",
-      metadata: tooltip("Known optimum", `(${example.optimum.map((value) => value.toFixed(2)).join(", ")})`),
-    }),
-  );
+      ...visibleSteps.slice(0, -1).map((step, index) =>
+        createArrowLayer(`optimization-step-${index}`, mapPoint(example, trace, step.point, step.value), mapPoint(example, trace, visibleSteps[index + 1]!.point, visibleSteps[index + 1]!.value), "#fb7185", {
+          headSize: 0.07,
+          shaftRadius: 0.012,
+          opacity: 0.72,
+          metadata: tooltip(`Step ${index}`, `f=${step.value.toExponential(2)}, ||grad||=${step.gradientNorm.toExponential(2)}`),
+        }),
+      ),
+      createMarkerLayer("optimization-start", mapPoint(example, trace, trace.steps[0]!.point, trace.steps[0]!.value), "#f8fafc", {
+        radius: 0.045,
+        label: "start",
+        metadata: tooltip("Start point", `(${trace.steps[0]!.point.map((value) => value.toFixed(2)).join(", ")})`),
+      }),
+      createMarkerLayer("optimization-final", mapPoint(example, trace, visibleSteps[visibleSteps.length - 1]!.point, visibleSteps[visibleSteps.length - 1]!.value), "#fde047", {
+        radius: 0.06,
+        label: "current",
+        metadata: tooltip("Current iterate", `distance=${visibleSteps[visibleSteps.length - 1]!.distanceToOptimum.toExponential(2)}`),
+      }),
+      createMarkerLayer("optimization-optimum", mapPoint(example, trace, example.optimum, example.value(...example.optimum)), "#34d399", {
+        radius: 0.055,
+        label: "optimum",
+        metadata: tooltip("Known optimum", `(${example.optimum.map((value) => value.toFixed(2)).join(", ")})`),
+      }),
+    );
+  }
 
   if (options.showGradient ?? true) {
     layers.push(...createGradientLayers(example, trace, visibleSteps));
@@ -77,8 +80,8 @@ export function createOptimizationTraceSceneSpec(
   return createSceneSpec({
     id: `optimization-trace:${trace.metadata.methodId}:${trace.metadata.exampleId}:${trace.iterations}:${trace.stepSize}:${focus}`,
     camera: {
-      position: [4.2, -6.1, 3.7],
-      target: [0, 0.05, -0.1],
+      position: [4.15, 3.8, 4.2],
+      target: [0, 0.02, -0.02],
       fov: 45,
       minDistance: 2,
       maxDistance: 14,
@@ -145,7 +148,7 @@ function createLandscapeLayer(example: OptimizationExampleSpec, trace: Optimizat
   };
 }
 
-function createContourLayers(trace: OptimizationTrace): VisualLayerSpec[] {
+function createContourLayers(): VisualLayerSpec[] {
   return [0.18, 0.34, 0.52, 0.72, 0.9].map((level, index) =>
     ({
       kind: "ring",
@@ -177,9 +180,9 @@ function createGradientLayers(example: OptimizationExampleSpec, trace: Optimizat
   });
 }
 
-function createComparisonLayers(example: OptimizationExampleSpec, trace: OptimizationTrace, comparisonTraces: OptimizationTrace[]): VisualLayerSpec[] {
+function createComparisonLayers(example: OptimizationExampleSpec, comparisonBaseline: OptimizationTrace, comparisonTraces: OptimizationTrace[]): VisualLayerSpec[] {
   return comparisonTraces.flatMap((comparison) => {
-    const points = comparison.steps.map((step) => mapPoint(example, trace, step.point, step.value));
+    const points = comparison.steps.map((step) => mapPoint(example, comparisonBaseline, step.point, step.value));
     const color = comparison.metadata.methodId === "gradient-descent" ? "#60a5fa" : comparison.metadata.methodId === "momentum" ? "#14b8a6" : "#f59e0b";
     return [
       createLineLayer(`optimization-comparison-${comparison.metadata.methodId}`, pathSegments(points), color, {

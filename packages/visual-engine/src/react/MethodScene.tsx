@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import {
   addScaled,
@@ -80,12 +80,20 @@ export function MethodScene({
   const previousExampleIdRef = useRef<string | null>(null);
   const layers = useMemo(() => mergeLayerSpec(layerOverrides), [layerOverrides]);
   const style = useMemo(() => ({ ...defaultEngineStyle, ...styleOverrides }), [styleOverrides]);
+  const [renderError, setRenderError] = useState<string | null>(null);
 
   useEffect(() => {
     const mount = mountRef.current;
     if (!mount) return;
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "WebGL renderer could not be created.";
+      queueMicrotask(() => setRenderError(message));
+      return;
+    }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -245,7 +253,22 @@ export function MethodScene({
     runtime.pickables.push(...buildScene(runtime.contentGroup, { method, example, trace, comparisonTraces, projectionSegments, layers, style }));
   }, [comparisonTraces, example, layers, method, projectionSegments, style, trace]);
 
-  return <div ref={mountRef} className={className} />;
+  return (
+    <div ref={mountRef} className={className}>
+      {renderError ? (
+        <div className="absolute inset-0 flex items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(125,211,252,0.12),_rgba(6,16,22,0.96)_60%)] p-6 text-center">
+          <div className="max-w-md rounded-[24px] border border-white/10 bg-black/20 px-6 py-5 text-[#d7e3ea] shadow-2xl shadow-black/30 backdrop-blur">
+            <div className="text-sm font-semibold uppercase tracking-[0.18em] text-[#8fb0be]">Render Unavailable</div>
+            <div className="mt-3 text-lg font-semibold text-white">{example.name}</div>
+            <div className="mt-2 text-sm leading-6 text-[#9fb3bb]">
+              WebGL context yaratilmadi. Bu muhit GPU renderni bloklayapti.
+            </div>
+            <div className="mt-3 text-xs leading-5 text-[#7f98a4]">{renderError}</div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function resizeRenderer(runtime: SceneRuntime) {

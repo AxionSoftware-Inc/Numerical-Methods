@@ -79,8 +79,8 @@ export function createProbabilityTraceSceneSpec(
   return createSceneSpec({
     id: `probability-trace:${trace.metadata.methodId}:${trace.metadata.exampleId}:${trace.pathCount}:${trace.steps}:${trace.metadata.drift}:${trace.metadata.volatility}:${trace.metadata.seed}`,
     camera: {
-      position: [4.2, -6.2, 3.6],
-      target: [0.15, 0.05, 0.05],
+      position: [4.2, 3.7, 4.15],
+      target: [0.1, -0.02, 0.08],
       fov: 45,
       minDistance: 2,
       maxDistance: 14,

@@ -1,8 +1,16 @@
 export * from "./color";
+export * from "./area-integral";
 export * from "./geometry";
+export * from "./interpolation-trace";
+export * from "./matrix-trace";
+export * from "./ode-trace";
+export * from "./operator-composition";
 export * from "./operator-family";
 export * from "./optimization-trace";
+export * from "./pde-trace";
 export * from "./probability-trace";
+export * from "./root-finding-trace";
 export * from "./multi-integral";
 export * from "./scene-objects";
+export * from "./workbench-scene";
 export type * from "./types";

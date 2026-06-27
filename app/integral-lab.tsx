@@ -6,20 +6,39 @@ import {
   buildResolutionConvergence,
   buildSurfaceIntegralTrace,
   buildVolumeIntegralTrace,
+  compileCustomAreaIntegralMethod,
+  compileCustomSurfaceIntegralMethod,
+  compileCustomVolumeIntegralMethod,
   format,
 } from "@methodslab/methods-engine/core";
-import { integrationExamples, integrationMethods, surfaceIntegralExamples, volumeIntegralExamples } from "@methodslab/methods-engine/presets";
+import {
+  integrationExamples,
+  integrationMethods,
+  surfaceIntegralExamples,
+  surfaceIntegrationMethods,
+  volumeIntegralExamples,
+  volumeIntegrationMethods,
+} from "@methodslab/methods-engine/presets";
 import { IntegrationScene, MultiIntegralScene } from "@methodslab/visual-engine/react";
 import type {
   IntegrationConvergenceTrace,
   IntegrationExampleId,
   IntegrationMethodId,
+  SurfaceIntegrationMethodId,
   SurfaceIntegralExampleId,
+  VolumeIntegrationMethodId,
   VolumeIntegralExampleId,
 } from "@methodslab/methods-engine/core";
 import { Activity, AreaChart, BarChart3, Box, Crosshair, FunctionSquare, GitCompare, RotateCcw, ScanSearch, Sigma, Sparkles, Thermometer, TrendingUp, Waves } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { BenchmarkLink, CompactBenchmarkSummary } from "./analyzer/benchmark-ui";
+import {
+  buildAreaIntegralBenchmarkRows,
+  buildSurfaceIntegralBenchmarkRows,
+  buildVolumeIntegralBenchmarkRows,
+  summarizeBenchmark,
+} from "./analyzer/benchmark-utils";
 
 export type IntegralLabProps = {
   onSwitchToOde: () => void;
@@ -80,30 +99,36 @@ function AreaIntegralLab({
   onOpenFamily,
 }: IntegralLabProps & { activeKind: IntegralKind; onSetKind: (kind: IntegralKind) => void }) {
   const [methodId, setMethodId] = useState<IntegrationMethodId>("trapezoid");
+  const [customMethodInput, setCustomMethodInput] = useState("adaptive simpson singular integral");
+  const [useCustomMethod, setUseCustomMethod] = useState(false);
   const [exampleId, setExampleId] = useState<IntegrationExampleId>("smooth-wave");
   const [showComparison, setShowComparison] = useState(true);
   const [panelsByExample, setPanelsByExample] = useState<Record<IntegrationExampleId, number>>({
     "smooth-wave": integrationExamples[0].defaultPanels,
     "sharp-peak": integrationExamples[1].defaultPanels,
+    "singular-edge": integrationExamples[2].defaultPanels,
+    oscillatory: integrationExamples[3].defaultPanels,
   });
 
-  const method = integrationMethods.find((item) => item.id === methodId)!;
+  const customMethod = useMemo(() => compileCustomAreaIntegralMethod(customMethodInput), [customMethodInput]);
+  const presetMethod = integrationMethods.find((item) => item.id === methodId)!;
+  const method = useCustomMethod ? customMethod.method : presetMethod;
   const example = integrationExamples.find((item) => item.id === exampleId)!;
   const panels = panelsByExample[exampleId];
   const trace = useMemo(() => buildIntegrationTrace(method, example, panels), [example, method, panels]);
   const comparisonTraces = useMemo(
     () =>
       integrationMethods
-        .filter((item) => item.id !== methodId)
-        .map((item) => ({
-          id: item.id,
-          name: item.name,
-          color: item.color,
-          trace: buildIntegrationTrace(item, example, panels),
-        })),
-    [example, methodId, panels],
+        .filter((item) => item.id !== (useCustomMethod ? customMethod.baseMethodId : methodId))
+        .map((item) => buildIntegrationTrace(item, example, panels)),
+    [customMethod.baseMethodId, example, methodId, panels, useCustomMethod],
   );
-  const convergence = useMemo(() => buildIntegrationConvergence(integrationMethods, example, Math.max(example.maxPanels, panels)), [example, panels]);
+  const convergence = useMemo(
+    () => buildIntegrationConvergence(integrationMethods, example, Math.max(example.maxPanels, panels)),
+    [example, panels],
+  );
+  const benchmarkRows = useMemo(() => buildAreaIntegralBenchmarkRows(trace, comparisonTraces), [comparisonTraces, trace]);
+  const benchmarkSummary = useMemo(() => summarizeBenchmark(benchmarkRows, trace.metadata.methodName), [benchmarkRows, trace.metadata.methodName]);
 
   function setPanels(value: number) {
     setPanelsByExample((current) => ({ ...current, [exampleId]: value }));
@@ -114,10 +139,17 @@ function AreaIntegralLab({
     setShowComparison(true);
   }
 
+  const densityLabel =
+    method.category === "stochastic"
+      ? `samples ${trace.sampleCount}`
+      : `panels ${trace.panelCount}`;
+  const stderrValue =
+    trace.estimatorStdError > 0 ? trace.estimatorStdError.toExponential(2) : "det";
+
   return (
     <main className="h-screen overflow-hidden bg-[#f4f7f8] text-[#152026]">
       <section className="grid h-screen grid-rows-[minmax(0,52vh)_minmax(0,48vh)] overflow-hidden lg:grid-cols-[430px_1fr] lg:grid-rows-1">
-        <aside className="order-2 min-h-0 overflow-y-auto border-t border-[#d8e0e3] bg-[#fbfcfc] p-5 lg:order-1 lg:h-screen lg:border-r lg:border-t-0">
+        <aside className="relative z-10 order-2 min-h-0 overflow-y-auto border-t border-[#d8e0e3] bg-[#fbfcfc] p-5 lg:order-1 lg:h-screen lg:border-r lg:border-t-0">
           <div className="flex items-center gap-3">
             <div className="flex size-10 items-center justify-center rounded bg-[#14222b] text-white">
               <Sigma size={21} />
@@ -146,16 +178,40 @@ function AreaIntegralLab({
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => setMethodId(item.id)}
+                    onClick={() => {
+                      setMethodId(item.id);
+                      setUseCustomMethod(false);
+                    }}
                     className={`min-h-10 rounded border px-3 text-left text-sm font-medium transition ${
-                      item.id === methodId ? "border-[#14222b] bg-[#14222b] text-white" : "border-[#cfd9dd] bg-white hover:bg-[#eef4f5]"
+                      !useCustomMethod && item.id === methodId ? "border-[#14222b] bg-[#14222b] text-white" : "border-[#cfd9dd] bg-white hover:bg-[#eef4f5]"
                     }`}
                   >
                     {item.name}
                   </button>
                 ))}
+                <button
+                  type="button"
+                  onClick={() => setUseCustomMethod(true)}
+                  className={`min-h-10 rounded border px-3 text-left text-sm font-medium transition ${
+                    useCustomMethod ? "border-[#be123c] bg-[#be123c] text-white" : "border-[#cfd9dd] bg-white hover:bg-[#eef4f5]"
+                  }`}
+                >
+                  Custom compiled
+                </button>
               </div>
             </div>
+
+            <CustomIntegralMethodCard
+              title="Custom area method"
+              value={customMethodInput}
+              onChange={setCustomMethodInput}
+              active={useCustomMethod}
+              onActivate={() => setUseCustomMethod(true)}
+              summary={`${customMethod.method.name} | confidence ${(customMethod.confidence * 100).toFixed(0)}%`}
+              details={customMethod.notes}
+              parsed={customMethod.parsed}
+              execution={customMethod.execution}
+            />
 
             <div className="rounded border border-[#dce4e7] bg-white p-4">
               <div className="text-sm font-semibold text-[#31424b]">Funksiya</div>
@@ -187,8 +243,8 @@ function AreaIntegralLab({
               </div>
 
               <label htmlFor="panels" className="mt-4 flex items-center justify-between text-sm font-semibold text-[#31424b]">
-                Panel soni
-                <span className="font-mono text-[#0f766e]">n = {trace.panelCount}</span>
+                {method.category === "stochastic" ? "Sample budget" : "Panel soni"}
+                <span className="font-mono text-[#0f766e]">n = {panels}</span>
               </label>
               <input
                 id="panels"
@@ -223,10 +279,13 @@ function AreaIntegralLab({
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               <Metric label="Numeric" value={format(trace.numericValue)} />
               <Metric label="Exact" value={format(trace.exactValue)} />
               <Metric label="Abs error" value={trace.absError.toExponential(2)} />
+              <Metric label="Sensitivity" value={trace.sensitivity.toExponential(2)} />
+              <Metric label="Peak local" value={trace.peakPanelError.toExponential(2)} />
+              <Metric label="Std err" value={stderrValue} />
             </div>
 
             <div className="rounded border border-[#dce4e7] bg-white p-4">
@@ -239,14 +298,39 @@ function AreaIntegralLab({
 
             <div className="rounded border border-[#dce4e7] bg-white p-4">
               <div className="flex items-center gap-2 text-sm font-semibold text-[#31424b]">
+                <GitCompare size={17} />
+                Method comparison
+              </div>
+              <div className="mt-3 space-y-2 text-xs">
+                {[trace, ...comparisonTraces].map((item) => (
+                  <div key={item.metadata.methodId} className="grid grid-cols-[1fr_auto_auto] items-center gap-2 rounded border border-[#e2e8f0] px-2 py-2">
+                    <span className="truncate font-medium text-[#31424b]">{item.metadata.methodName}</span>
+                    <span className="font-mono text-[#0f766e]">{item.absError.toExponential(1)}</span>
+                    <span className="font-mono text-[#be185d]">{item.metadata.category}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded border border-[#dce4e7] bg-white p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-[#31424b]">
                 <AreaChart size={17} />
                 Geometrik talqin
               </div>
               <p className="mt-3 text-sm leading-6 text-[#50626b]">{method.geometry}</p>
               <p className="mt-3 text-sm leading-6 text-[#50626b]">{example.interpretation}</p>
               <p className="mt-3 text-sm leading-6 text-[#50626b]">
-                Rangli panel yuzasi metodning integralni qanday geometrik obyektga almashtirayotganini, node nuqtalar esa funksiyadan qayerda sample olayotganini ko‘rsatadi.
+                Bu yerda 2D ko'rinish aniqroq: egri chiziq, panel replacement va sample nuqtalari integral xatosini ortiqcha kamera murakkabligisiz ko'rsatadi.
               </p>
+            </div>
+
+            <div className="rounded border border-[#dce4e7] bg-white p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-[#31424b]">
+                <TrendingUp size={17} />
+                Benchmark
+              </div>
+              <CompactBenchmarkSummary rows={benchmarkRows} methodName={trace.metadata.methodName} wins={benchmarkSummary.wins} losses={benchmarkSummary.losses} />
+              <BenchmarkLink href={`/analyzer/benchmarks?family=integral&kind=area&method=${encodeURIComponent(useCustomMethod ? customMethod.baseMethodId : method.id)}&example=${encodeURIComponent(example.id)}&panels=${panels}${useCustomMethod ? `&formula=${encodeURIComponent(customMethodInput)}` : ""}`} />
             </div>
           </div>
         </aside>
@@ -255,15 +339,24 @@ function AreaIntegralLab({
           <IntegrationScene
             className="absolute inset-0"
             trace={trace}
-            comparisonTraces={comparisonTraces}
+            comparisonTraces={comparisonTraces.map((item) => ({
+              id: item.metadata.methodId,
+              name: item.metadata.methodName,
+              color: integrationMethods.find((methodItem) => methodItem.id === item.metadata.methodId)?.color ?? "#cbd5e1",
+              trace: item,
+            }))}
             showComparison={showComparison}
           />
           <div className="pointer-events-none absolute left-4 top-4 flex max-w-[calc(100%-2rem)] flex-wrap gap-2 text-xs font-medium">
-            <span className="rounded bg-[#38bdf8] px-2 py-1 text-[#082f49]">true curve</span>
+            <span className="rounded bg-[#38bdf8] px-2 py-1 text-[#082f49]">2D analyzer</span>
             <span className="rounded px-2 py-1 text-[#111827]" style={{ background: method.color }}>
               {method.name}
             </span>
+            <span className="rounded bg-[#dcfce7] px-2 py-1 text-[#166534]">{densityLabel}</span>
             {showComparison ? <span className="rounded bg-[#e2e8f0] px-2 py-1 text-[#334155]">comparison overlay</span> : null}
+          </div>
+          <div className="pointer-events-none absolute bottom-4 left-4 max-w-2xl rounded bg-black/35 px-3 py-2 text-sm leading-6 text-[#f3e8d1] backdrop-blur-sm">
+            Adaptive metod qiyin joylarda panelni maydalaydi, Gauss va Clenshaw-Curtis sample joylashuvi bilan yutadi, Monte Carlo esa statistik xatolik bilan ko'rinadi.
           </div>
         </div>
       </section>
@@ -279,27 +372,39 @@ function SurfaceIntegralLab({
   onSwitchToCustom,
   onOpenFamily,
 }: IntegralLabProps & { activeKind: IntegralKind; onSetKind: (kind: IntegralKind) => void }) {
+  const [methodId, setMethodId] = useState<SurfaceIntegrationMethodId>("surface-midpoint");
+  const [customMethodInput, setCustomMethodInput] = useState("tensor gauss surface");
+  const [useCustomMethod, setUseCustomMethod] = useState(false);
   const [exampleId, setExampleId] = useState<SurfaceIntegralExampleId>("surface-wave");
   const [showAnalysis, setShowAnalysis] = useState(true);
   const [resolutionByExample, setResolutionByExample] = useState<Record<SurfaceIntegralExampleId, number>>({
     "surface-wave": surfaceIntegralExamples[0].defaultResolution,
     "saddle-sheet": surfaceIntegralExamples[1].defaultResolution,
+    "ridge-surface": surfaceIntegralExamples[2].defaultResolution,
   });
+  const customMethod = useMemo(() => compileCustomSurfaceIntegralMethod(customMethodInput), [customMethodInput]);
+  const presetMethod = surfaceIntegrationMethods.find((item) => item.id === methodId)!;
+  const method = useCustomMethod ? customMethod.method : presetMethod;
   const example = surfaceIntegralExamples.find((item) => item.id === exampleId)!;
   const resolution = resolutionByExample[exampleId];
-  const trace = useMemo(() => buildSurfaceIntegralTrace(example, resolution), [example, resolution]);
+  const trace = useMemo(() => buildSurfaceIntegralTrace(method, example, resolution), [example, method, resolution]);
   const convergence = useMemo(
     () =>
       buildResolutionConvergence(
         (value) => {
-          const next = buildSurfaceIntegralTrace(example, value);
+          const next = buildSurfaceIntegralTrace(method, example, value);
           return { resolution: next.resolution, absError: next.absError };
         },
         example.minResolution,
         example.maxResolution,
       ),
-    [example],
+    [example, method],
   );
+  const benchmarkRows = useMemo(
+    () => buildSurfaceIntegralBenchmarkRows(trace, surfaceIntegrationMethods.filter((item) => item.id !== (useCustomMethod ? customMethod.baseMethodId : method.id)).map((item) => buildSurfaceIntegralTrace(item, example, resolution))),
+    [customMethod.baseMethodId, example, method.id, resolution, trace, useCustomMethod],
+  );
+  const benchmarkSummary = useMemo(() => summarizeBenchmark(benchmarkRows, trace.metadata.methodName), [benchmarkRows, trace.metadata.methodName]);
 
   function setResolution(value: number) {
     setResolutionByExample((current) => ({ ...current, [exampleId]: value }));
@@ -314,15 +419,22 @@ function SurfaceIntegralLab({
       exactValue={trace.exactValue}
       formula={example.formula}
       interpretation={example.interpretation}
-      metricLabel="Surface integral"
+      metricLabel={`${method.name} | samples ${trace.sampleCount}`}
       numericValue={trace.numericValue}
+      sampleCount={trace.sampleCount}
+      sensitivity={trace.sensitivity}
+      benchmarkRows={benchmarkRows}
+      benchmarkMethodName={trace.metadata.methodName}
+      benchmarkWins={benchmarkSummary.wins}
+      benchmarkLosses={benchmarkSummary.losses}
+      benchmarkHref={`/analyzer/benchmarks?family=integral&kind=surface&method=${encodeURIComponent(useCustomMethod ? customMethod.baseMethodId : method.id)}&example=${encodeURIComponent(example.id)}&resolution=${resolution}${useCustomMethod ? `&formula=${encodeURIComponent(customMethodInput)}` : ""}`}
       onReset={() => setResolution(example.defaultResolution)}
       onToggleAnalysis={() => setShowAnalysis((value) => !value)}
       onSetKind={onSetKind}
       onSwitchToOde={onSwitchToOde}
       onSwitchToPde={onSwitchToPde}
       onSwitchToCustom={onSwitchToCustom}
-      rangeLabel={`mesh ${trace.resolution}x${trace.resolution}`}
+      rangeLabel={`${method.name} | mesh ${trace.resolution}x${trace.resolution}`}
       resolution={resolution}
       scene={<MultiIntegralScene className="absolute inset-0" kind="surface" showAnalysis={showAnalysis} trace={trace} />}
       showAnalysis={showAnalysis}
@@ -331,6 +443,46 @@ function SurfaceIntegralLab({
       maxResolution={example.maxResolution}
       onResolutionChange={setResolution}
     >
+      <div className="rounded border border-[#dce4e7] bg-white p-4">
+        <div className="text-sm font-semibold text-[#31424b]">Surface method</div>
+        <div className="mt-3 grid grid-cols-1 gap-2">
+          {surfaceIntegrationMethods.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => {
+                setMethodId(item.id);
+                setUseCustomMethod(false);
+              }}
+              className={`min-h-10 rounded border px-3 text-left text-sm font-medium transition ${
+                !useCustomMethod && item.id === methodId ? "border-[#14222b] bg-[#14222b] text-white" : "border-[#cfd9dd] bg-white hover:bg-[#eef4f5]"
+              }`}
+            >
+              {item.name}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setUseCustomMethod(true)}
+            className={`min-h-10 rounded border px-3 text-left text-sm font-medium transition ${
+              useCustomMethod ? "border-[#be123c] bg-[#be123c] text-white" : "border-[#cfd9dd] bg-white hover:bg-[#eef4f5]"
+            }`}
+          >
+            Custom compiled
+          </button>
+        </div>
+      </div>
+      <CustomIntegralMethodCard
+        title="Custom surface method"
+        value={customMethodInput}
+        onChange={setCustomMethodInput}
+        active={useCustomMethod}
+        onActivate={() => setUseCustomMethod(true)}
+        summary={`${customMethod.method.name} | confidence ${(customMethod.confidence * 100).toFixed(0)}%`}
+        details={customMethod.notes}
+        parsed={customMethod.parsed}
+        execution={customMethod.execution}
+      />
       <div className="rounded border border-[#dce4e7] bg-white p-4">
         <div className="text-sm font-semibold text-[#31424b]">Surface misoli</div>
         <div className="mt-3 grid grid-cols-2 gap-2">
@@ -360,27 +512,39 @@ function VolumeIntegralLab({
   onSwitchToCustom,
   onOpenFamily,
 }: IntegralLabProps & { activeKind: IntegralKind; onSetKind: (kind: IntegralKind) => void }) {
+  const [methodId, setMethodId] = useState<VolumeIntegrationMethodId>("volume-midpoint");
+  const [customMethodInput, setCustomMethodInput] = useState("tensor gauss volume");
+  const [useCustomMethod, setUseCustomMethod] = useState(false);
   const [exampleId, setExampleId] = useState<VolumeIntegralExampleId>("paraboloid-solid");
   const [showAnalysis, setShowAnalysis] = useState(true);
   const [resolutionByExample, setResolutionByExample] = useState<Record<VolumeIntegralExampleId, number>>({
     "paraboloid-solid": volumeIntegralExamples[0].defaultResolution,
     "wave-solid": volumeIntegralExamples[1].defaultResolution,
+    "ridge-solid": volumeIntegralExamples[2].defaultResolution,
   });
+  const customMethod = useMemo(() => compileCustomVolumeIntegralMethod(customMethodInput), [customMethodInput]);
+  const presetMethod = volumeIntegrationMethods.find((item) => item.id === methodId)!;
+  const method = useCustomMethod ? customMethod.method : presetMethod;
   const example = volumeIntegralExamples.find((item) => item.id === exampleId)!;
   const resolution = resolutionByExample[exampleId];
-  const trace = useMemo(() => buildVolumeIntegralTrace(example, resolution), [example, resolution]);
+  const trace = useMemo(() => buildVolumeIntegralTrace(method, example, resolution), [example, method, resolution]);
   const convergence = useMemo(
     () =>
       buildResolutionConvergence(
         (value) => {
-          const next = buildVolumeIntegralTrace(example, value);
+          const next = buildVolumeIntegralTrace(method, example, value);
           return { resolution: next.resolution, absError: next.absError };
         },
         example.minResolution,
         example.maxResolution,
       ),
-    [example],
+    [example, method],
   );
+  const benchmarkRows = useMemo(
+    () => buildVolumeIntegralBenchmarkRows(trace, volumeIntegrationMethods.filter((item) => item.id !== (useCustomMethod ? customMethod.baseMethodId : method.id)).map((item) => buildVolumeIntegralTrace(item, example, resolution))),
+    [customMethod.baseMethodId, example, method.id, resolution, trace, useCustomMethod],
+  );
+  const benchmarkSummary = useMemo(() => summarizeBenchmark(benchmarkRows, trace.metadata.methodName), [benchmarkRows, trace.metadata.methodName]);
 
   function setResolution(value: number) {
     setResolutionByExample((current) => ({ ...current, [exampleId]: value }));
@@ -395,15 +559,22 @@ function VolumeIntegralLab({
       exactValue={trace.exactValue}
       formula={example.formula}
       interpretation={example.interpretation}
-      metricLabel="Volume integral"
+      metricLabel={`${method.name} | samples ${trace.sampleCount}`}
       numericValue={trace.numericValue}
+      sampleCount={trace.sampleCount}
+      sensitivity={trace.sensitivity}
+      benchmarkRows={benchmarkRows}
+      benchmarkMethodName={trace.metadata.methodName}
+      benchmarkWins={benchmarkSummary.wins}
+      benchmarkLosses={benchmarkSummary.losses}
+      benchmarkHref={`/analyzer/benchmarks?family=integral&kind=volume&method=${encodeURIComponent(useCustomMethod ? customMethod.baseMethodId : method.id)}&example=${encodeURIComponent(example.id)}&resolution=${resolution}${useCustomMethod ? `&formula=${encodeURIComponent(customMethodInput)}` : ""}`}
       onReset={() => setResolution(example.defaultResolution)}
       onToggleAnalysis={() => setShowAnalysis((value) => !value)}
       onSetKind={onSetKind}
       onSwitchToOde={onSwitchToOde}
       onSwitchToPde={onSwitchToPde}
       onSwitchToCustom={onSwitchToCustom}
-      rangeLabel={`columns ${trace.resolution}x${trace.resolution}`}
+      rangeLabel={`${method.name} | columns ${trace.resolution}x${trace.resolution}`}
       resolution={resolution}
       scene={<MultiIntegralScene className="absolute inset-0" kind="volume" showAnalysis={showAnalysis} trace={trace} />}
       showAnalysis={showAnalysis}
@@ -412,6 +583,46 @@ function VolumeIntegralLab({
       maxResolution={example.maxResolution}
       onResolutionChange={setResolution}
     >
+      <div className="rounded border border-[#dce4e7] bg-white p-4">
+        <div className="text-sm font-semibold text-[#31424b]">Volume method</div>
+        <div className="mt-3 grid grid-cols-1 gap-2">
+          {volumeIntegrationMethods.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => {
+                setMethodId(item.id);
+                setUseCustomMethod(false);
+              }}
+              className={`min-h-10 rounded border px-3 text-left text-sm font-medium transition ${
+                !useCustomMethod && item.id === methodId ? "border-[#14222b] bg-[#14222b] text-white" : "border-[#cfd9dd] bg-white hover:bg-[#eef4f5]"
+              }`}
+            >
+              {item.name}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setUseCustomMethod(true)}
+            className={`min-h-10 rounded border px-3 text-left text-sm font-medium transition ${
+              useCustomMethod ? "border-[#be123c] bg-[#be123c] text-white" : "border-[#cfd9dd] bg-white hover:bg-[#eef4f5]"
+            }`}
+          >
+            Custom compiled
+          </button>
+        </div>
+      </div>
+      <CustomIntegralMethodCard
+        title="Custom volume method"
+        value={customMethodInput}
+        onChange={setCustomMethodInput}
+        active={useCustomMethod}
+        onActivate={() => setUseCustomMethod(true)}
+        summary={`${customMethod.method.name} | confidence ${(customMethod.confidence * 100).toFixed(0)}%`}
+        details={customMethod.notes}
+        parsed={customMethod.parsed}
+        execution={customMethod.execution}
+      />
       <div className="rounded border border-[#dce4e7] bg-white p-4">
         <div className="text-sm font-semibold text-[#31424b]">Volume misoli</div>
         <div className="mt-3 grid grid-cols-2 gap-2">
@@ -446,6 +657,13 @@ function MultiDimensionalIntegralLayout({
   metricLabel,
   minResolution,
   numericValue,
+  sampleCount,
+  sensitivity,
+  benchmarkRows,
+  benchmarkMethodName,
+  benchmarkWins,
+  benchmarkLosses,
+  benchmarkHref,
   onReset,
   onResolutionChange,
   onSetKind,
@@ -472,6 +690,13 @@ function MultiDimensionalIntegralLayout({
   metricLabel: string;
   minResolution: number;
   numericValue: number;
+  sampleCount?: number;
+  sensitivity?: number;
+  benchmarkRows: import("./analyzer/benchmark-utils").BenchmarkRow[];
+  benchmarkMethodName: string;
+  benchmarkWins: number;
+  benchmarkLosses: number;
+  benchmarkHref: string;
   onReset: () => void;
   onResolutionChange: (value: number) => void;
   onSetKind: (kind: IntegralKind) => void;
@@ -485,7 +710,7 @@ function MultiDimensionalIntegralLayout({
   return (
     <main className="h-screen overflow-hidden bg-[#f4f7f8] text-[#152026]">
       <section className="grid h-screen grid-rows-[minmax(0,52vh)_minmax(0,48vh)] overflow-hidden lg:grid-cols-[430px_1fr] lg:grid-rows-1">
-        <aside className="order-2 min-h-0 overflow-y-auto border-t border-[#d8e0e3] bg-[#fbfcfc] p-5 lg:order-1 lg:h-screen lg:border-r lg:border-t-0">
+        <aside className="relative z-10 order-2 min-h-0 overflow-y-auto border-t border-[#d8e0e3] bg-[#fbfcfc] p-5 lg:order-1 lg:h-screen lg:border-r lg:border-t-0">
           <div className="flex items-center gap-3">
             <div className="flex size-10 items-center justify-center rounded bg-[#14222b] text-white">
               <Sigma size={21} />
@@ -557,10 +782,12 @@ function MultiDimensionalIntegralLayout({
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               <Metric label="Numeric" value={format(numericValue)} />
               <Metric label="Exact" value={format(exactValue)} />
               <Metric label="Abs error" value={currentError.toExponential(2)} />
+              <Metric label="Samples" value={`${sampleCount ?? currentResolution * currentResolution}`} />
+              <Metric label="Sensitivity" value={(sensitivity ?? 0).toExponential(2)} />
             </div>
 
             <div className="rounded border border-[#dce4e7] bg-white p-4">
@@ -581,6 +808,15 @@ function MultiDimensionalIntegralLayout({
                 Rang/opacity sample qiymatini, cell yoki column esa integral domain qanday diskret obyektlarga bo‘linayotganini ko‘rsatadi.
               </p>
             </div>
+
+            <div className="rounded border border-[#dce4e7] bg-white p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-[#31424b]">
+                <TrendingUp size={17} />
+                Benchmark
+              </div>
+              <CompactBenchmarkSummary rows={benchmarkRows} methodName={benchmarkMethodName} wins={benchmarkWins} losses={benchmarkLosses} />
+              <BenchmarkLink href={benchmarkHref} />
+            </div>
           </div>
         </aside>
 
@@ -589,6 +825,9 @@ function MultiDimensionalIntegralLayout({
           <div className="pointer-events-none absolute left-4 top-4 flex max-w-[calc(100%-2rem)] flex-wrap gap-2 text-xs font-medium">
             <span className="rounded bg-[#38bdf8] px-2 py-1 text-[#082f49]">{activeKind}</span>
             <span className="rounded bg-[#e2e8f0] px-2 py-1 text-[#334155]">{rangeLabel}</span>
+          </div>
+          <div className="pointer-events-none absolute bottom-4 left-4 max-w-xl rounded bg-black/35 px-3 py-2 text-sm leading-6 text-[#d7e3ea] backdrop-blur-sm">
+            Method sample patterni va mesh/column diskretizatsiyasi sahnada alohida ko'rinadi. Hover qilsangiz qaysi element nima ekanini ko'rasiz.
           </div>
         </div>
       </section>
@@ -686,6 +925,83 @@ function OperatorFamilyNav({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+function CustomIntegralMethodCard({
+  title,
+  value,
+  onChange,
+  active,
+  onActivate,
+  summary,
+  details,
+  parsed,
+  execution,
+}: {
+  title: string;
+  value: string;
+  onChange: (value: string) => void;
+  active: boolean;
+  onActivate: () => void;
+  summary: string;
+  details: string[];
+  parsed?: Record<string, number | string | boolean>;
+  execution?: "matched" | "parametric-executable" | "formula-executable";
+}) {
+  const parsedEntries = Object.entries(parsed ?? {}).slice(0, 6);
+  const executionLabel =
+    execution === "formula-executable"
+      ? "Formula executable"
+      : execution === "parametric-executable"
+        ? "Parametric executable"
+        : "Family matched";
+  return (
+    <div className="rounded border border-[#dce4e7] bg-white p-4">
+      <div className="flex items-center gap-2 text-sm font-semibold text-[#31424b]">
+        <Sparkles size={16} />
+        {title}
+      </div>
+      <textarea
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        spellCheck={false}
+        className="mt-3 h-24 w-full resize-none rounded border border-[#cfd9dd] bg-[#071115] p-3 font-mono text-sm leading-6 text-[#d7e3ea] outline-none focus:border-[#0f766e]"
+      />
+      <div className="mt-3 text-xs font-mono text-[#40525c]">{summary}</div>
+      <div className="mt-2 inline-flex rounded bg-[#eef4f5] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#51636c]">
+        {executionLabel}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {details.slice(0, 3).map((item) => (
+          <span key={item} className="rounded bg-[#eef4f5] px-2 py-1 text-[11px] font-medium text-[#40525c]">
+            {item}
+          </span>
+        ))}
+      </div>
+      {parsedEntries.length > 0 ? (
+        <div className="mt-3 rounded border border-[#dbe5ea] bg-[#f8fbfc] p-3">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#647780]">Compiled parameters</div>
+          <div className="mt-2 flex flex-wrap gap-2 font-mono text-[11px] text-[#31424b]">
+            {parsedEntries.map(([key, item]) => (
+              <span key={key} className="rounded bg-white px-2 py-1 shadow-sm ring-1 ring-[#dbe5ea]">
+                {key}={typeof item === "number" ? item.toFixed(4).replace(/\.?0+$/, "") : String(item)}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      <button
+        type="button"
+        onClick={onActivate}
+        className={`mt-3 flex h-9 w-full items-center justify-center gap-2 rounded border px-3 text-sm font-medium ${
+          active ? "border-[#be123c] bg-[#be123c] text-white" : "border-[#cfd9dd] bg-white hover:bg-[#eef4f5]"
+        }`}
+      >
+        <Sparkles size={15} />
+        {active ? "Custom method active" : "Use custom method"}
+      </button>
     </div>
   );
 }

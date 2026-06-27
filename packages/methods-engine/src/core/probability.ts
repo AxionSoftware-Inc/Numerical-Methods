@@ -43,6 +43,17 @@ export const probabilityMethods: ProbabilityMethodSpec[] = [
     noiseCorrection: 0.15,
     sampler: "exact-transition",
   },
+  {
+    id: "antithetic-monte-carlo",
+    name: "Antithetic Monte Carlo",
+    formula: "Pair dW and -dW exact-transition paths to reduce estimator variance",
+    color: "#f59e0b",
+    order: "Variance-reduced weak estimator",
+    stability: "Cloud simmetriyasi kuchayadi va payoff confidence interval odatda torayadi",
+    geometry: "Antithetic juftliklar stochastic bulutni muvozanatlashtirib, tail shovqinini pasaytiradi.",
+    noiseCorrection: 0.1,
+    sampler: "antithetic-transition",
+  },
 ];
 
 export const probabilityExamples: ProbabilityExampleSpec[] = [
@@ -116,31 +127,32 @@ export function buildProbabilityTrace(
   const dt = example.endTime / steps;
   const rng = createSeededRandom(options.seed);
   const paths: ProbabilityPathTrace[] = [];
+  const matchedExactTerminals: number[] = [];
   let minValue = Number.POSITIVE_INFINITY;
   let maxValue = Number.NEGATIVE_INFINITY;
+  let pendingAntitheticNormals: number[] | null = null;
 
   for (let pathIndex = 0; pathIndex < pathCount; pathIndex += 1) {
-    const samples: ProbabilityPathSample[] = [{ index: 0, t: 0, value: example.initial }];
-    let value = example.initial;
-
-    for (let step = 1; step <= steps; step += 1) {
-      const t = (step - 1) * dt;
-      const normal = randomNormal(rng);
-      const dW = Math.sqrt(dt) * normal;
-      value = nextProbabilityValue(method, example, value, t, dt, dW, options.drift, options.volatility);
-      samples.push({ index: step, t: step * dt, value });
-      minValue = Math.min(minValue, value);
-      maxValue = Math.max(maxValue, value);
-    }
-
-    const terminal = samples[samples.length - 1]!.value;
+    const mirrored = method.sampler === "antithetic-transition" && pathIndex % 2 === 1;
+    const normals =
+      method.sampler === "antithetic-transition"
+        ? mirrored
+          ? (pendingAntitheticNormals ?? Array.from({ length: steps }, () => randomNormal(rng))).map((value) => -value)
+          : (pendingAntitheticNormals = Array.from({ length: steps }, () => randomNormal(rng)))
+        : Array.from({ length: steps }, () => randomNormal(rng));
+    const built = buildProbabilityPath(method, example, dt, normals, options.drift, options.volatility);
+    const terminal = built.samples[built.samples.length - 1]!.value;
+    minValue = Math.min(minValue, ...built.samples.map((sample) => sample.value));
+    maxValue = Math.max(maxValue, ...built.samples.map((sample) => sample.value));
     paths.push({
       id: pathIndex,
       color: probabilityPalette(pathIndex),
-      samples,
+      samples: built.samples,
       terminal,
       payoff: Math.max(terminal - example.payoffLevel, 0),
     });
+    matchedExactTerminals.push(built.exactTerminal);
+    if (mirrored) pendingAntitheticNormals = null;
   }
 
   const moments = buildMoments(paths, example, options.drift, options.volatility);
@@ -149,6 +161,7 @@ export function buildProbabilityTrace(
   const sortedTerminalValues = [...terminalValues].sort((left, right) => left - right);
   const terminalMean = mean(terminalValues);
   const terminalVariance = sampleVariance(terminalValues, terminalMean);
+  const exactMatchedMean = mean(matchedExactTerminals);
   const payoffEstimate = mean(payoffValues);
   const payoffVariance = sampleVariance(payoffValues, payoffEstimate);
   const payoffStdError = Math.sqrt(payoffVariance / Math.max(pathCount, 1));
@@ -176,6 +189,12 @@ export function buildProbabilityTrace(
     expectedShortfall05: expectedShortfall(sortedTerminalValues, 0.05),
     meanAbsError: Math.abs(terminalMean - exactTerminalMean),
     varianceAbsError: Math.abs(terminalVariance - exactTerminalVariance),
+    strongErrorEstimate: mean(terminalValues.map((value, index) => Math.abs(value - matchedExactTerminals[index]!))),
+    weakErrorEstimate: Math.abs(terminalMean - exactMatchedMean),
+    pathwiseQuantile95Error: quantile(terminalValues.map((value, index) => Math.abs(value - matchedExactTerminals[index]!)).sort((left, right) => left - right), 0.95),
+    terminalSkewness: skewness(terminalValues, terminalMean, terminalVariance),
+    terminalExcessKurtosis: excessKurtosis(terminalValues, terminalMean, terminalVariance),
+    tailBalance: Math.abs((quantile(sortedTerminalValues, 0.95) - terminalMean) - (terminalMean - quantile(sortedTerminalValues, 0.05))),
     payoffLevel: example.payoffLevel,
     dt,
     steps,
@@ -203,7 +222,7 @@ function nextProbabilityValue(
   drift: number,
   volatility: number,
 ) {
-  if (method.sampler === "exact-transition") {
+  if (method.sampler === "exact-transition" || method.sampler === "antithetic-transition") {
     return exactTransitionValue(example, value, dt, dW, drift, volatility);
   }
 
@@ -220,6 +239,32 @@ function nextProbabilityValue(
   const correction = method.sampler === "milstein" ? method.noiseCorrection * volatility ** 2 * value * (dW ** 2 - dt) : 0;
   const next = euler + correction;
   return Math.max(next, 1e-6);
+}
+
+function buildProbabilityPath(
+  method: ProbabilityMethodSpec,
+  example: ProbabilityExampleSpec,
+  dt: number,
+  normals: number[],
+  drift: number,
+  volatility: number,
+) {
+  const samples: ProbabilityPathSample[] = [{ index: 0, t: 0, value: example.initial }];
+  let value = example.initial;
+  let exactValue = example.initial;
+
+  for (let step = 1; step <= normals.length; step += 1) {
+    const t = (step - 1) * dt;
+    const dW = Math.sqrt(dt) * normals[step - 1]!;
+    value = nextProbabilityValue(method, example, value, t, dt, dW, drift, volatility);
+    exactValue = exactTransitionValue(example, exactValue, dt, dW, drift, volatility);
+    samples.push({ index: step, t: step * dt, value });
+  }
+
+  return {
+    samples,
+    exactTerminal: exactValue,
+  };
 }
 
 function exactTransitionValue(
@@ -325,6 +370,16 @@ function expectedShortfall(sortedValues: number[], probability: number) {
   if (sortedValues.length === 0) return 0;
   const count = Math.max(1, Math.floor(sortedValues.length * probability));
   return mean(sortedValues.slice(0, count));
+}
+
+function skewness(values: number[], center: number, variance: number) {
+  const sigma = Math.sqrt(Math.max(variance, 1e-12));
+  return values.reduce((sum, value) => sum + ((value - center) / sigma) ** 3, 0) / Math.max(values.length, 1);
+}
+
+function excessKurtosis(values: number[], center: number, variance: number) {
+  const sigma = Math.sqrt(Math.max(variance, 1e-12));
+  return values.reduce((sum, value) => sum + ((value - center) / sigma) ** 4, 0) / Math.max(values.length, 1) - 3;
 }
 
 function clampInt(value: number, min: number, max: number) {

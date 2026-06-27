@@ -60,8 +60,8 @@ export function createSurfaceIntegralSceneSpec(
     id: `surface:${trace.metadata.exampleId}:${trace.resolution}`,
     style: defaultMultiIntegralStyle(),
     camera: {
-      position: [3.2, -4.8, 2.9],
-      target: [0, 0, 0],
+      position: [3.6, 3.25, 3.85],
+      target: [0, -0.1, 0],
       fov: 46,
       minDistance: 1.8,
       maxDistance: 12,
@@ -87,6 +87,7 @@ export function createVolumeIntegralSceneSpec(
   const layers: VisualLayerSpec[] = [
     volumeColumnsLayer(trace, bounds),
     volumeTopWireLayer(trace, bounds),
+    volumeSamplesLayer(trace, bounds),
   ];
 
   if (options.showAnalysis ?? true) {
@@ -105,8 +106,8 @@ export function createVolumeIntegralSceneSpec(
     id: `volume:${trace.metadata.exampleId}:${trace.resolution}`,
     style: defaultMultiIntegralStyle(),
     camera: {
-      position: [3.8, -5, 3.3],
-      target: [0, 0, 0],
+      position: [4.1, 3.7, 4.25],
+      target: [0, -0.12, 0],
       fov: 46,
       minDistance: 1.8,
       maxDistance: 12,
@@ -180,24 +181,25 @@ function surfaceSamplesLayer(trace: SurfaceIntegralTrace, bounds: SurfaceBounds)
   const positions: number[] = [];
   const colors: number[] = [];
   const indices: number[] = [];
-  const sampleStride = Math.max(1, Math.floor(trace.cells.length / 110));
+  const sampleStride = Math.max(1, Math.floor(trace.cells.length / 90));
   const half = 0.012;
 
   trace.cells.forEach((cell, index) => {
     if (index % sampleStride !== 0) return;
+    cell.samplePoints.forEach((samplePoint) => {
+      const point = normalizeSurfacePoint(samplePoint, bounds);
 
-    const point = normalizeSurfacePoint(cell.sample, bounds);
-
-    addQuad(
-      positions,
-      colors,
-      indices,
-      [point[0] - half, point[1] + 0.015, point[2] - half],
-      [point[0] + half, point[1] + 0.015, point[2] - half],
-      [point[0] + half, point[1] + 0.015, point[2] + half],
-      [point[0] - half, point[1] + 0.015, point[2] + half],
-      [0.97, 0.98, 0.99],
-    );
+      addQuad(
+        positions,
+        colors,
+        indices,
+        [point[0] - half, point[1] + 0.015, point[2] - half],
+        [point[0] + half, point[1] + 0.015, point[2] - half],
+        [point[0] + half, point[1] + 0.015, point[2] + half],
+        [point[0] - half, point[1] + 0.015, point[2] + half],
+        [0.97, 0.98, 0.99],
+      );
+    });
   });
 
   return {
@@ -218,6 +220,66 @@ function surfaceSamplesLayer(trace: SurfaceIntegralTrace, bounds: SurfaceBounds)
     metadata: {
       role: "sample-points",
       stride: sampleStride,
+      title: "Sample points",
+      description: "Method qayerda sirtni sample qilayotganini ko'rsatadi.",
+    },
+  };
+}
+
+function volumeSamplesLayer(trace: VolumeIntegralTrace, bounds: VolumeBounds): VisualLayerSpec {
+  const positions: number[] = [];
+  const colors: number[] = [];
+  const indices: number[] = [];
+  const voxelStride = Math.max(1, Math.floor(trace.voxels.length / 64));
+  const half = 0.011;
+
+  trace.voxels.forEach((voxel, index) => {
+    if (index % voxelStride !== 0) return;
+
+    voxel.samplePoints.forEach((samplePoint) => {
+      const column = normalizeVolumeColumn(
+        [samplePoint[0], samplePoint[1], samplePoint[2] / 2],
+        [voxel.size[0], voxel.size[1], samplePoint[2]],
+        bounds,
+      );
+      const point: VisualVec3 = [
+        column.position[0],
+        -0.86 + Math.max(column.size[1], 0.03) + 0.015,
+        column.position[2],
+      ];
+
+      addQuad(
+        positions,
+        colors,
+        indices,
+        [point[0] - half, point[1], point[2] - half],
+        [point[0] + half, point[1], point[2] - half],
+        [point[0] + half, point[1], point[2] + half],
+        [point[0] - half, point[1], point[2] + half],
+        [0.99, 0.98, 0.94],
+      );
+    });
+  });
+
+  return {
+    kind: "mesh",
+    id: "volume-samples",
+    objectId: "volume",
+    name: "Volume sample points",
+    positions,
+    indices,
+    colors,
+    material: {
+      vertexColors: true,
+      doubleSided: true,
+      opacity: 0.86,
+      transparent: true,
+      depthTest: true,
+    },
+    metadata: {
+      role: "sample-points",
+      title: "Column samples",
+      description: "Har volume cell ichida metod olgan sample joylari.",
     },
   };
 }

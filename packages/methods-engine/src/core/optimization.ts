@@ -23,6 +23,17 @@ export const optimizationMethods: OptimizationMethodSpec[] = [
     momentum: 0.76,
   },
   {
+    id: "nesterov",
+    name: "Nesterov",
+    formula: "y_k=x_k-beta v_k, v_{k+1}=beta v_k+grad f(y_k), x_{k+1}=x_k-eta v_{k+1}",
+    color: "#8b5cf6",
+    order: "Accelerated with look-ahead gradient",
+    stability: "Valley ichida tezroq, lekin qadam katta bo'lsa minimumdan oshib ketishi mumkin",
+    geometry: "Oldinga qarab gradient olish yo'lni keskinroq va ongliroq buradi.",
+    stepScale: 0.68,
+    momentum: 0.82,
+  },
+  {
     id: "newton-optimization",
     name: "Newton",
     formula: "x_{k+1}=x_k-H(x_k)^{-1}grad f(x_k)",
@@ -81,6 +92,29 @@ export const optimizationExamples: OptimizationExampleSpec[] = [
     ],
     interpretation: "Ko'p basin borligi sabab start point va curvature search qaysi minimumga tushishni belgilaydi.",
   },
+  {
+    id: "ill-conditioned-bowl",
+    name: "Ill-Conditioned Quadratic",
+    shortName: "Quad",
+    formula: "f(x,y)=18x^2+0.35y^2+3.5xy",
+    initial: [2.4, -2.6],
+    optimum: [0, 0],
+    defaultStep: 0.045,
+    minStep: 0.002,
+    maxStep: 0.09,
+    defaultIterations: 54,
+    minIterations: 8,
+    maxIterations: 160,
+    xRange: [-3.2, 3.2],
+    yRange: [-3.2, 3.2],
+    value: (x, y) => 18 * x * x + 0.35 * y * y + 3.5 * x * y,
+    gradient: (x, y) => [36 * x + 3.5 * y, 0.7 * y + 3.5 * x],
+    hessian: () => [
+      [36, 3.5],
+      [3.5, 0.7],
+    ],
+    interpretation: "Condition number katta bo'lsa oddiy gradient descent zigzag qiladi; accelerated yoki curvature-aware usullar bu yerda ajralib turadi.",
+  },
 ];
 
 export function buildOptimizationTrace(
@@ -95,12 +129,27 @@ export function buildOptimizationTrace(
   let velocity: [number, number] = [0, 0];
   let minValue = Number.POSITIVE_INFINITY;
   let maxValue = Number.NEGATIVE_INFINITY;
+  let oscillationCount = 0;
+  let monotoneIncreaseCount = 0;
+  let gradientAlignmentSum = 0;
+  let alignmentCount = 0;
+  let conditionSum = 0;
+  let negativeCurvatureSteps = 0;
+  let largestAcceptedStep = 0;
+  let previousGradient: [number, number] | null = null;
 
   for (let index = 0; index <= iterations; index += 1) {
     const value = example.value(point[0], point[1]);
     const gradient = example.gradient(point[0], point[1]);
     const gradientNorm = Math.hypot(...gradient);
-    const update = index < iterations ? computeOptimizationUpdate(method, example, point, gradient, velocity, stepSize) : [0, 0] as [number, number];
+    const hessian = example.hessian(point[0], point[1]);
+    const [lambdaMin, lambdaMax] = eigenvalues2x2(hessian);
+    const condition = Math.abs(lambdaMin) < 1e-9 ? Number.POSITIVE_INFINITY : Math.abs(lambdaMax / lambdaMin);
+    const stepState = index < iterations ? computeOptimizationStep(method, example, point, gradient, velocity, stepSize) : null;
+    const update = stepState?.update ?? ([0, 0] as [number, number]);
+    const nextPoint = stepState ? clampPoint([point[0] + update[0], point[1] + update[1]], example) : point;
+    const acceptedStep: [number, number] = [nextPoint[0] - point[0], nextPoint[1] - point[1]];
+    const acceptedStepNorm = Math.hypot(...acceptedStep);
 
     steps.push({
       index,
@@ -108,18 +157,32 @@ export function buildOptimizationTrace(
       value,
       gradient,
       gradientNorm,
-      step: update,
+      step: acceptedStep,
       distanceToOptimum: Math.hypot(point[0] - example.optimum[0], point[1] - example.optimum[1]),
     });
 
     minValue = Math.min(minValue, value);
     maxValue = Math.max(maxValue, value);
+    largestAcceptedStep = Math.max(largestAcceptedStep, acceptedStepNorm);
+    conditionSum += Number.isFinite(condition) ? condition : 1000;
+    if (lambdaMin <= 0) negativeCurvatureSteps += 1;
+
+    if (previousGradient) {
+      const denom = Math.max(1e-9, Math.hypot(...previousGradient) * gradientNorm);
+      gradientAlignmentSum += (previousGradient[0] * gradient[0] + previousGradient[1] * gradient[1]) / denom;
+      alignmentCount += 1;
+    }
+    previousGradient = gradient;
 
     if (index < iterations) {
-      if (method.id === "momentum") {
-        velocity = [method.momentum! * velocity[0] + gradient[0], method.momentum! * velocity[1] + gradient[1]];
+      const nextValue = example.value(nextPoint[0], nextPoint[1]);
+      if (nextValue > value) monotoneIncreaseCount += 1;
+      if (index > 0) {
+        const previousStep = steps[index - 1]!.step;
+        if (previousStep[0] * acceptedStep[0] + previousStep[1] * acceptedStep[1] < 0) oscillationCount += 1;
       }
-      point = clampPoint([point[0] + update[0], point[1] + update[1]], example);
+      velocity = stepState?.nextVelocity ?? velocity;
+      point = nextPoint;
     }
   }
 
@@ -133,6 +196,16 @@ export function buildOptimizationTrace(
     maxValue,
     stepSize,
     iterations,
+    oscillationCount,
+    monotoneIncreaseCount,
+    averageGradientAlignment: alignmentCount > 0 ? gradientAlignmentSum / alignmentCount : 1,
+    averageConditionNumber: conditionSum / Math.max(steps.length, 1),
+    finalConditionNumber: (() => {
+      const [lambdaMin, lambdaMax] = eigenvalues2x2(example.hessian(final.point[0], final.point[1]));
+      return Math.abs(lambdaMin) < 1e-9 ? Number.POSITIVE_INFINITY : Math.abs(lambdaMax / lambdaMin);
+    })(),
+    negativeCurvatureSteps,
+    largestAcceptedStep,
     metadata: {
       methodId: method.id,
       methodName: method.name,
@@ -142,27 +215,65 @@ export function buildOptimizationTrace(
   };
 }
 
-function computeOptimizationUpdate(
+function computeOptimizationStep(
   method: OptimizationMethodSpec,
   example: OptimizationExampleSpec,
   point: [number, number],
   gradient: [number, number],
   velocity: [number, number],
   stepSize: number,
-): [number, number] {
+): { update: [number, number]; nextVelocity: [number, number] } {
+  if (method.customUpdate) {
+    return {
+      update: method.customUpdate({
+        x: point[0],
+        y: point[1],
+        gx: gradient[0],
+        gy: gradient[1],
+        vx: velocity[0],
+        vy: velocity[1],
+        eta: stepSize,
+        beta: method.momentum ?? 0,
+        stepScale: method.stepScale,
+      }),
+      nextVelocity: velocity,
+    };
+  }
+
   if (method.id === "newton-optimization") {
     const hessian = example.hessian(point[0], point[1]);
     const inverseStep = solve2x2(hessian, gradient);
     const damping = Math.min(1, Math.max(0.12, stepSize * 35));
-    return [-damping * inverseStep[0], -damping * inverseStep[1]];
+    return {
+      update: [-damping * inverseStep[0], -damping * inverseStep[1]],
+      nextVelocity: velocity,
+    };
   }
 
   if (method.id === "momentum") {
     const beta = method.momentum ?? 0.75;
-    return [-stepSize * method.stepScale * (beta * velocity[0] + gradient[0]), -stepSize * method.stepScale * (beta * velocity[1] + gradient[1])];
+    const nextVelocity: [number, number] = [beta * velocity[0] + gradient[0], beta * velocity[1] + gradient[1]];
+    return {
+      update: [-stepSize * method.stepScale * nextVelocity[0], -stepSize * method.stepScale * nextVelocity[1]],
+      nextVelocity,
+    };
   }
 
-  return [-stepSize * method.stepScale * gradient[0], -stepSize * method.stepScale * gradient[1]];
+  if (method.id === "nesterov") {
+    const beta = method.momentum ?? 0.8;
+    const lookAhead: [number, number] = [point[0] - stepSize * beta * velocity[0], point[1] - stepSize * beta * velocity[1]];
+    const lookAheadGradient = example.gradient(lookAhead[0], lookAhead[1]);
+    const nextVelocity: [number, number] = [beta * velocity[0] + lookAheadGradient[0], beta * velocity[1] + lookAheadGradient[1]];
+    return {
+      update: [-stepSize * method.stepScale * nextVelocity[0], -stepSize * method.stepScale * nextVelocity[1]],
+      nextVelocity,
+    };
+  }
+
+  return {
+    update: [-stepSize * method.stepScale * gradient[0], -stepSize * method.stepScale * gradient[1]],
+    nextVelocity: velocity,
+  };
 }
 
 function solve2x2(matrix: [[number, number], [number, number]], vector: [number, number]): [number, number] {
@@ -182,4 +293,12 @@ function clamp(value: number, min: number, max: number) {
 
 function clampInt(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, Math.round(value)));
+}
+
+function eigenvalues2x2(matrix: [[number, number], [number, number]]) {
+  const [[a, b], [c, d]] = matrix;
+  const trace = a + d;
+  const det = a * d - b * c;
+  const disc = Math.sqrt(Math.max(trace * trace - 4 * det, 0));
+  return [(trace - disc) / 2, (trace + disc) / 2] as const;
 }

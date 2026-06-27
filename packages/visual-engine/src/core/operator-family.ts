@@ -70,7 +70,7 @@ function createMatrixFamilySceneSpec(input: OperatorFamilySceneInput): VisualSce
   return createSceneSpec({
     id: `matrix:${slugify(input.familyName)}:${slugify(input.schemeName)}`,
     camera: {
-      position: [3.05, -4.9, 2.8],
+      position: [3.05, 3.25, 3.2],
       target: [0, 0, -1.0],
       fov: 46,
       minDistance: 1.8,
@@ -151,7 +151,7 @@ function createOptimizationSceneSpec(input: OperatorFamilySceneInput): VisualSce
   return createSceneSpec({
     id: `optimization:${slugify(input.familyName)}:${slugify(input.schemeName)}`,
     camera: {
-      position: [3.6, -5.4, 3.4],
+      position: [3.6, 3.45, 3.8],
       target: [0, 0, -0.2],
       fov: 46,
       minDistance: 1.8,
@@ -264,8 +264,8 @@ function createRootFindingSceneSpec(input: OperatorFamilySceneInput): VisualScen
   return createSceneSpec({
     id: `root:${slugify(input.familyName)}:${slugify(input.schemeName)}`,
     camera: {
-      position: [3.35, -5.15, 3.0],
-      target: [0.25, 0.15, -0.2],
+      position: [3.35, 3.25, 3.45],
+      target: [0.25, 0.12, -0.08],
       fov: 46,
       minDistance: 1.8,
       maxDistance: 12,
@@ -353,8 +353,8 @@ function createProbabilitySceneSpec(input: OperatorFamilySceneInput): VisualScen
   return createSceneSpec({
     id: `probability:${slugify(input.familyName)}:${slugify(input.schemeName)}`,
     camera: {
-      position: [3.25, -5.25, 3.1],
-      target: [0.2, 0.15, -0.2],
+      position: [3.25, 3.3, 3.55],
+      target: [0.2, 0.12, -0.08],
       fov: 46,
       minDistance: 1.8,
       maxDistance: 12,
@@ -431,8 +431,8 @@ function createInterpolationSceneSpec(input: OperatorFamilySceneInput): VisualSc
   return createSceneSpec({
     id: `interpolation:${slugify(input.familyName)}:${slugify(input.schemeName)}`,
     camera: {
-      position: [3.4, -5.3, 3.2],
-      target: [0.15, 0.2, -0.15],
+      position: [3.4, 3.35, 3.65],
+      target: [0.15, 0.16, -0.08],
       fov: 46,
       minDistance: 1.8,
       maxDistance: 12,
@@ -504,7 +504,7 @@ function createFallbackOperatorSceneSpec(input: OperatorFamilySceneInput): Visua
   return createSceneSpec({
     id: `operator:${slugify(input.familyName)}:${slugify(input.schemeName)}`,
     camera: {
-      position: [3.2, -4.8, 2.9],
+      position: [3.2, 3.1, 3.25],
       target: [0, 0, 0],
       fov: 46,
       minDistance: 1.8,
