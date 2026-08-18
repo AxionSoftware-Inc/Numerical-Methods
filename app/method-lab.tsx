@@ -44,7 +44,15 @@ import {
   rootFindingMethods,
 } from "@methodslab/methods-engine/presets";
 import { MethodScene, PdeScene, VisualScene } from "@methodslab/visual-engine/react";
-import { createOperatorFamilySceneSpec, createOptimizationTraceSceneSpec, createProbabilityTraceSceneSpec } from "@methodslab/visual-engine/core";
+import type { VisualSceneCameraPoseState } from "@methodslab/visual-engine/react";
+import {
+  createInterpolationTraceSceneSpec,
+  createMatrixTraceSceneSpec,
+  createOperatorFamilySceneSpec,
+  createOptimizationTraceSceneSpec,
+  createProbabilityTraceSceneSpec,
+  createRootFindingTraceSceneSpec,
+} from "@methodslab/visual-engine/core";
 import type {
   EnergySample,
   ExampleId,
@@ -65,6 +73,17 @@ import type {
   RootFindingExampleId,
   RootFindingMethodId,
   StabilityScanTrace,
+} from "@methodslab/methods-engine/core";
+import type { VisualSceneSpec } from "@methodslab/visual-engine/core";
+import {
+  createCompositionFromWorkbenchArtifacts,
+  createInterpolationWorkbenchArtifact,
+  createMatrixWorkbenchArtifact,
+  createRootFindingWorkbenchArtifact,
+  evaluateWorkbenchCompatibility,
+  summarizeOperatorComposition,
+  type OperatorWorkbenchArtifact,
+  type OperatorCompositionMode,
 } from "@methodslab/methods-engine/core";
 import IntegralLab from "./integral-lab";
 import {
@@ -1491,6 +1510,906 @@ function ProbabilityLab({ onOpenFamily }: { onOpenFamily: (familyId: string) => 
   );
 }
 
+type CompareMethodOption<TTrace> = {
+  id: string;
+  name: string;
+  color: string;
+  trace: TTrace;
+  artifact: OperatorWorkbenchArtifact;
+  primaryMetric: string;
+  secondaryMetric: string;
+};
+
+type CompareSceneItem = {
+  id: string;
+  name: string;
+  color: string;
+  spec: VisualSceneSpec;
+  subtitle: string;
+};
+
+type CompareFamilyKind = "matrix" | "root-finding" | "interpolation";
+type CompareWorkspaceWindowKind = "primary" | "analyze" | "split" | "overlay" | "compose";
+type DockSide = "left" | "right";
+
+type MethodTabWorkspaceOption = {
+  id: string;
+  name: string;
+  color: string;
+};
+
+type CompareDockProps<TTrace> = {
+  family: CompareFamilyKind;
+  title: string;
+  open: boolean;
+  options: CompareMethodOption<TTrace>[];
+  activeMethodId: string;
+  rightSplitMethodId: string | null;
+  overlayMethodIds: string[];
+  onPromoteMethod: (methodId: string) => void;
+  onAssignRightSplitMethod: (methodId: string) => void;
+  onToggleOverlayMethod: (methodId: string) => void;
+  onRemoveRightSplitMethod: () => void;
+  onClearOverlayMethods: () => void;
+  compareViewMode: "split" | "overlay";
+  onChangeCompareViewMode: (mode: "split" | "overlay") => void;
+  cameraLinkEnabled: boolean;
+  onToggleCameraLink: () => void;
+  composeSelection: string[];
+  onDropComposeMethod: (methodId: string) => void;
+  onRemoveComposeMethod: (methodId: string) => void;
+  onMoveComposeMethod: (methodId: string, direction: "left" | "right") => void;
+  onClearComposeSelection: () => void;
+  compositionMode: OperatorCompositionMode;
+  onChangeCompositionMode: (mode: OperatorCompositionMode) => void;
+  compatibilityReason: string;
+  compositionSummary: ReturnType<typeof summarizeOperatorComposition>;
+  overlayWarning: string | null;
+};
+
+const EMPTY_COMPOSITION_SUMMARY: ReturnType<typeof summarizeOperatorComposition> = {
+  id: "compare-compose-empty",
+  name: "Compare compose",
+  mode: "pipeline",
+  visualGrammar: "trajectory-flow",
+  operatorCount: 0,
+  connectionCount: 0,
+  familyCount: 0,
+  isCrossFamily: false,
+  warnings: [],
+};
+
+const compareFamilyCopy: Record<
+  CompareFamilyKind,
+  { split: string; overlay: string; compose: string; anchor: string; right: string; overlayLabel: string }
+> = {
+  matrix: {
+    split: "Basis, orbit va contractionni yonma-yon ko'ring.",
+    overlay: "Residual yo'llar bir frame ichida ustma-ust tushadi.",
+    compose: "Precondition -> iterate -> polish zanjiri quriladi.",
+    anchor: "Asosiy analizator",
+    right: "Yon panel",
+    overlayLabel: "Shared frame",
+  },
+  "root-finding": {
+    split: "Bracket va tangent geometriyasini ikki panelda ajrating.",
+    overlay: "Bir xil funksiya ustida qaysi yo'l qanday burilayotganini ko'ring.",
+    compose: "Bracket -> secant -> newton kabi transition quriladi.",
+    anchor: "Asosiy analizator",
+    right: "Yon panel",
+    overlayLabel: "Shared curve frame",
+  },
+  interpolation: {
+    split: "Exact, estimate va edge behaviourni yonma-yon tuting.",
+    overlay: "Bir xil scale ichida shape va overshootni ko'ring.",
+    compose: "Sample -> interpolate -> smooth pipeline quriladi.",
+    anchor: "Asosiy analizator",
+    right: "Yon panel",
+    overlayLabel: "Shared curve frame",
+  },
+};
+
+function moveListItem<T extends string>(items: readonly T[], item: T, direction: "left" | "right"): T[] {
+  const index = items.indexOf(item);
+  if (index === -1) return [...items];
+  const nextIndex = direction === "left" ? index - 1 : index + 1;
+  if (nextIndex < 0 || nextIndex >= items.length) return [...items];
+
+  const next = [...items];
+  [next[index], next[nextIndex]] = [next[nextIndex]!, next[index]!];
+  return next;
+}
+
+type MethodTabWorkspaceProps = {
+  tabs: MethodTabWorkspaceOption[];
+  activeTabId: string;
+  dockedTabId: string | null;
+  dockSide: DockSide;
+  onActivateTab: (tabId: string) => void;
+  onCloseTab: (tabId: string) => void;
+  onDockTab: (tabId: string, side: DockSide) => void;
+  onUndockTab: () => void;
+  renderPanel: (tabId: string) => ReactNode;
+};
+
+function MethodTabWorkspace({
+  tabs,
+  activeTabId,
+  dockedTabId,
+  dockSide,
+  onActivateTab,
+  onCloseTab,
+  onDockTab,
+  onUndockTab,
+  renderPanel,
+}: MethodTabWorkspaceProps) {
+  const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
+  const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0] ?? null;
+  const dockedTab = dockedTabId ? tabs.find((tab) => tab.id === dockedTabId) ?? null : null;
+  const splitEnabled = Boolean(activeTab && dockedTab && dockedTab.id !== activeTab.id);
+
+  if (!activeTab) {
+    return <div className="flex h-full items-center justify-center text-sm text-[#8fb0be]">Metod tanlang.</div>;
+  }
+
+  const mainPanel = renderPanel(activeTab.id);
+  const sidePanel = splitEnabled && dockedTab ? renderPanel(dockedTab.id) : null;
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex items-center gap-2 overflow-x-auto border-b border-white/10 bg-[#07111a] px-3 py-3">
+        {tabs.map((tab) => {
+          const isActive = tab.id === activeTab.id;
+          const isDocked = dockedTab?.id === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              draggable
+              onDragStart={(event) => {
+                setDraggingTabId(tab.id);
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("application/x-method-tab", tab.id);
+              }}
+              onDragEnd={() => setDraggingTabId(null)}
+              onClick={() => onActivateTab(tab.id)}
+              className={`group flex items-center gap-2 rounded-t-2xl border px-3 py-2 text-sm transition ${
+                isActive
+                  ? "border-[#7dd3fc] bg-[#0f3041] text-white"
+                  : "border-white/10 bg-white/5 text-[#cfe2ea] hover:bg-white/10"
+              }`}
+            >
+              <span className="size-2 rounded-full" style={{ background: tab.color }} />
+              <span className="whitespace-nowrap">{tab.name}</span>
+              {isDocked ? <span className="rounded-full bg-emerald-400/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-100">Docked</span> : null}
+              {tabs.length > 1 ? (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onCloseTab(tab.id);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      onCloseTab(tab.id);
+                    }
+                  }}
+                  className="rounded-full px-1.5 py-0.5 text-xs text-[#8fb0be] group-hover:bg-white/10"
+                >
+                  x
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="relative min-h-0 flex-1 overflow-hidden bg-[#07131d]">
+        {draggingTabId ? (
+          <>
+            <div
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                event.preventDefault();
+                const tabId = event.dataTransfer.getData("application/x-method-tab") || draggingTabId;
+                if (tabId) onDockTab(tabId, "left");
+                setDraggingTabId(null);
+              }}
+              className="absolute left-3 top-1/2 z-20 flex h-32 w-10 -translate-y-1/2 items-center justify-center rounded-2xl border border-dashed border-[#7dd3fc]/40 bg-[#07111a]/84 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8fb0be]"
+            >
+              L
+            </div>
+            <div
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                event.preventDefault();
+                const tabId = event.dataTransfer.getData("application/x-method-tab") || draggingTabId;
+                if (tabId) onDockTab(tabId, "right");
+                setDraggingTabId(null);
+              }}
+              className="absolute right-3 top-1/2 z-20 flex h-32 w-10 -translate-y-1/2 items-center justify-center rounded-2xl border border-dashed border-[#7dd3fc]/40 bg-[#07111a]/84 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8fb0be]"
+            >
+              R
+            </div>
+          </>
+        ) : null}
+
+        {splitEnabled && sidePanel ? (
+          <div className="grid h-full grid-cols-2 gap-px bg-white/10">
+            {dockSide === "left" ? (
+              <>
+                <div className="min-h-0 overflow-hidden bg-[#07131d]">{sidePanel}</div>
+                <div className="min-h-0 overflow-hidden bg-[#07131d]">{mainPanel}</div>
+              </>
+            ) : (
+              <>
+                <div className="min-h-0 overflow-hidden bg-[#07131d]">{mainPanel}</div>
+                <div className="min-h-0 overflow-hidden bg-[#07131d]">{sidePanel}</div>
+              </>
+            )}
+          </div>
+        ) : (
+          <div className="h-full min-h-0 overflow-hidden">{mainPanel}</div>
+        )}
+
+        {splitEnabled ? (
+          <button
+            type="button"
+            onClick={onUndockTab}
+            className="absolute right-4 top-4 z-20 rounded-full bg-black/35 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur-sm"
+          >
+            Undock
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function CompareDock<TTrace>({
+  family,
+  title,
+  open,
+  options,
+  activeMethodId,
+  rightSplitMethodId,
+  overlayMethodIds,
+  onPromoteMethod,
+  onAssignRightSplitMethod,
+  onToggleOverlayMethod,
+  onRemoveRightSplitMethod,
+  onClearOverlayMethods,
+  compareViewMode,
+  onChangeCompareViewMode,
+  cameraLinkEnabled,
+  onToggleCameraLink,
+  composeSelection,
+  onDropComposeMethod,
+  onRemoveComposeMethod,
+  onMoveComposeMethod,
+  onClearComposeSelection,
+  compositionMode,
+  onChangeCompositionMode,
+  compatibilityReason,
+  compositionSummary,
+  overlayWarning,
+}: CompareDockProps<TTrace>) {
+  if (!open) return null;
+
+  const familyCopy = compareFamilyCopy[family];
+  const activeOption = options.find((item) => item.id === activeMethodId) ?? null;
+  const rightSplitOption = rightSplitMethodId ? options.find((item) => item.id === rightSplitMethodId) ?? null : null;
+  const overlayOptions = overlayMethodIds
+    .map((methodId) => options.find((item) => item.id === methodId) ?? null)
+    .filter((option): option is CompareMethodOption<TTrace> => option !== null);
+  const compareHint = compareViewMode === "split" ? familyCopy.split : familyCopy.overlay;
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-20">
+      <div className="pointer-events-auto absolute inset-x-4 top-4 rounded-2xl border border-white/10 bg-[#07111a]/88 p-4 text-white shadow-2xl backdrop-blur">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8fb0be]">{title}</div>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-[#d6e7ef]">{compareHint}</p>
+            <p className="mt-1 text-xs leading-5 text-[#8fb0be]">{familyCopy.compose}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {(["split", "overlay"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => onChangeCompareViewMode(mode)}
+                className={`rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] ${
+                  compareViewMode === mode ? "bg-[#7dd3fc] text-[#08121a]" : "bg-white/8 text-[#cde2eb]"
+                }`}
+              >
+                {mode}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={onToggleCameraLink}
+              className={`rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] ${
+                cameraLinkEnabled ? "bg-emerald-400/15 text-emerald-100" : "bg-white/8 text-[#cde2eb]"
+              }`}
+            >
+              {cameraLinkEnabled ? "Camera linked" : "Camera free"}
+            </button>
+          </div>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {options.map((option) => {
+            const isPrimary = option.id === activeMethodId;
+            const pinned = option.id === rightSplitMethodId || overlayMethodIds.includes(option.id) || composeSelection.includes(option.id);
+            return (
+              <button
+                key={option.id}
+                type="button"
+                draggable
+                onDragStart={(event) => {
+                  event.dataTransfer.effectAllowed = "copy";
+                  event.dataTransfer.setData("application/x-compare-method", option.id);
+                }}
+                onClick={() => {
+                  if (isPrimary) return;
+                  onToggleOverlayMethod(option.id);
+                  onChangeCompareViewMode("overlay");
+                }}
+                className={`min-w-[150px] rounded-xl border px-3 py-2 text-left text-sm transition ${
+                  isPrimary
+                    ? "border-[#7dd3fc] bg-[#0f3041]"
+                    : pinned
+                      ? "border-emerald-300/35 bg-emerald-400/10"
+                      : "border-white/10 bg-black/15 hover:bg-white/10"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <span className="truncate font-semibold">{option.name}</span>
+                  <span className="size-2 rounded-full" style={{ background: option.color }} />
+                </div>
+                <div className="mt-2 text-[11px] text-[#a9c2cd]">{option.primaryMetric}</div>
+                <div className="text-[11px] text-[#7fa0ae]">{option.secondaryMetric}</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={(event) => {
+          event.preventDefault();
+          const methodId = event.dataTransfer.getData("application/x-compare-method");
+          if (methodId) onPromoteMethod(methodId);
+        }}
+        className="pointer-events-auto absolute left-4 top-1/2 w-64 -translate-y-1/2 rounded-2xl border border-dashed border-[#7dd3fc]/35 bg-[#07111a]/84 p-4 text-white shadow-xl backdrop-blur"
+      >
+        <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8fb0be]">{familyCopy.anchor}</div>
+        <div className="mt-3 rounded-xl border border-[#7dd3fc]/30 bg-[#0f3041] p-3">
+          <div className="flex items-center justify-between gap-3">
+            <span className="truncate text-sm font-semibold">{activeOption?.name ?? activeMethodId}</span>
+            <span className="size-2 rounded-full" style={{ background: activeOption?.color ?? "#7dd3fc" }} />
+          </div>
+          <p className="mt-2 text-xs leading-5 text-[#cde2eb]">Bu slotga tashlangan metod analyzerning asosiy markaziga aylanadi.</p>
+        </div>
+      </div>
+
+      <div
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={(event) => {
+          event.preventDefault();
+          const methodId = event.dataTransfer.getData("application/x-compare-method");
+          if (methodId) {
+            onAssignRightSplitMethod(methodId);
+            onChangeCompareViewMode("split");
+          }
+        }}
+        className="pointer-events-auto absolute right-4 top-1/2 w-64 -translate-y-1/2 rounded-2xl border border-dashed border-emerald-300/35 bg-[#07111a]/84 p-4 text-white shadow-xl backdrop-blur"
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8fb0be]">{familyCopy.right}</div>
+          {rightSplitOption ? (
+            <button type="button" onClick={onRemoveRightSplitMethod} className="text-[11px] font-semibold text-[#8fb0be]">
+              Clear
+            </button>
+          ) : null}
+        </div>
+        {rightSplitOption ? (
+          <div className="mt-3 rounded-xl border border-emerald-300/25 bg-emerald-400/10 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <span className="truncate text-sm font-semibold">{rightSplitOption.name}</span>
+              <span className="size-2 rounded-full" style={{ background: rightSplitOption.color }} />
+            </div>
+            <p className="mt-2 text-xs leading-5 text-[#cde2eb]">Split rejimda asosiy metod bilan sinxron kamera orqali ko'rsatiladi.</p>
+          </div>
+        ) : (
+          <p className="mt-3 text-xs leading-5 text-[#cde2eb]">Methodni shu slotga tashlang va yonma-yon compare ochiladi.</p>
+        )}
+      </div>
+
+      <div
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={(event) => {
+          event.preventDefault();
+          const methodId = event.dataTransfer.getData("application/x-compare-method");
+          if (methodId) {
+            onToggleOverlayMethod(methodId);
+            onChangeCompareViewMode("overlay");
+          }
+        }}
+        className="pointer-events-auto absolute left-1/2 top-[8.75rem] w-[min(32rem,calc(100%-10rem))] -translate-x-1/2 rounded-2xl border border-dashed border-amber-300/35 bg-[#07111a]/84 p-4 text-white shadow-xl backdrop-blur"
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8fb0be]">{familyCopy.overlayLabel}</div>
+          {overlayOptions.length > 0 ? (
+            <button type="button" onClick={onClearOverlayMethods} className="text-[11px] font-semibold text-[#8fb0be]">
+              Clear overlay
+            </button>
+          ) : null}
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {overlayOptions.length > 0 ? (
+            overlayOptions.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => onToggleOverlayMethod(option.id)}
+                className="rounded-full border border-amber-300/25 bg-amber-400/10 px-3 py-1.5 text-xs font-medium text-white"
+              >
+                {option.name}
+              </button>
+            ))
+          ) : (
+            <span className="text-xs text-[#cde2eb]">Methodlarni shu slotga tashlang, ular bir xil koordinata frame ichida overlay bo'ladi.</span>
+          )}
+        </div>
+        {overlayWarning ? <p className="mt-3 text-xs leading-5 text-amber-100">{overlayWarning}</p> : null}
+      </div>
+
+      <div
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={(event) => {
+          event.preventDefault();
+          const methodId = event.dataTransfer.getData("application/x-compare-method");
+          if (methodId) onDropComposeMethod(methodId);
+        }}
+        className="pointer-events-auto absolute inset-x-4 bottom-4 rounded-2xl border border-dashed border-[#7dd3fc]/35 bg-[#07111a]/88 p-4 text-white shadow-2xl backdrop-blur"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8fb0be]">Compose rail</div>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-[#d6e7ef]">Methodni shu railga tashlang. Har blok composition tartibini bildiradi va yangi operator yoki metod pipeline uchun tayyor scaffold bo'ladi.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {(["pipeline", "fused"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => onChangeCompositionMode(mode)}
+                className={`rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] ${
+                  compositionMode === mode ? "bg-[#7dd3fc] text-[#08121a]" : "bg-white/8 text-[#cde2eb]"
+                }`}
+              >
+                {mode}
+              </button>
+            ))}
+            {composeSelection.length > 0 ? (
+              <button type="button" onClick={onClearComposeSelection} className="rounded-full bg-white/8 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-[#cde2eb]">
+                Clear rail
+              </button>
+            ) : null}
+          </div>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-3">
+          {composeSelection.length > 0 ? (
+            composeSelection.map((methodId, index) => {
+              const option = options.find((item) => item.id === methodId);
+              if (!option) return null;
+              return (
+                <div key={`${methodId}-${index}`} className="rounded-2xl border border-white/10 bg-white/6 px-3 py-3">
+                  <div className="flex items-start gap-3">
+                    <span className="rounded-full bg-[#7dd3fc] px-2 py-1 text-[11px] font-semibold text-[#08121a]">{index + 1}</span>
+                    <div className="min-w-[150px]">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate text-sm font-semibold">{option.name}</span>
+                        <span className="size-2 rounded-full" style={{ background: option.color }} />
+                      </div>
+                      <div className="mt-1 text-[11px] text-[#8fb0be]">{option.primaryMetric}</div>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex gap-2 text-[11px] font-semibold">
+                    <button type="button" onClick={() => onMoveComposeMethod(methodId, "left")} className="rounded-full bg-white/8 px-2 py-1 text-[#cde2eb]">
+                      Left
+                    </button>
+                    <button type="button" onClick={() => onMoveComposeMethod(methodId, "right")} className="rounded-full bg-white/8 px-2 py-1 text-[#cde2eb]">
+                      Right
+                    </button>
+                    <button type="button" onClick={() => onRemoveComposeMethod(methodId)} className="rounded-full bg-rose-400/15 px-2 py-1 text-rose-100">
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <span className="text-xs text-[#8fb0be]">Methodlarni sahnadan shu railga tashlang va yangi composition tartibini yig'ing.</span>
+          )}
+        </div>
+        <div className="mt-4 rounded-xl bg-black/20 p-3 text-xs leading-5 text-[#cde2eb]">
+          <div>{compatibilityReason}</div>
+          <div className="mt-2 text-[#8fb0be]">
+            operators={compositionSummary.operatorCount} connections={compositionSummary.connectionCount} cross-family={compositionSummary.isCrossFamily ? "yes" : "no"}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const workspaceWindowMeta: Record<CompareWorkspaceWindowKind, { label: string; description: string }> = {
+  primary: { label: "3D Scene", description: "Asosiy katta geometriya oynasi." },
+  analyze: { label: "2D Analyze", description: "Aniq diagnostika va trace paneli." },
+  split: { label: "Split Compare", description: "Yonma-yon taqqoslash." },
+  overlay: { label: "Overlay Compare", description: "Bir frame ichida ustma-ust taqqoslash." },
+  compose: { label: "Compose Rail", description: "Yangi operator/metod pipeline yig'ish." },
+};
+
+function windowGridClass(windowCount: number) {
+  if (windowCount <= 1) return "grid-cols-1";
+  if (windowCount === 2) return "grid-cols-1 xl:grid-cols-2";
+  return "grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3";
+}
+
+type CompareWorkspaceProps<TTrace> = {
+  family: CompareFamilyKind;
+  title: string;
+  open: boolean;
+  windowKinds: CompareWorkspaceWindowKind[];
+  onOpenWindow: (kind: CompareWorkspaceWindowKind) => void;
+  onCloseWindow: (kind: CompareWorkspaceWindowKind) => void;
+  onMoveWindow: (kind: CompareWorkspaceWindowKind, direction: "left" | "right") => void;
+  options: CompareMethodOption<TTrace>[];
+  activeMethodId: string;
+  onPromoteMethod: (methodId: string) => void;
+  primarySpec: VisualSceneSpec;
+  overlaySpec: VisualSceneSpec;
+  splitItems: CompareSceneItem[];
+  linkedCamera: boolean;
+  analyzeNode: ReactNode;
+  rightSplitMethodId: string | null;
+  onAssignRightSplitMethod: (methodId: string) => void;
+  overlayMethodIds: string[];
+  onToggleOverlayMethod: (methodId: string) => void;
+  composeSelection: string[];
+  onAddComposeMethod: (methodId: string) => void;
+  onRemoveComposeMethod: (methodId: string) => void;
+  onMoveComposeMethod: (methodId: string, direction: "left" | "right") => void;
+  compositionMode: OperatorCompositionMode;
+  onChangeCompositionMode: (mode: OperatorCompositionMode) => void;
+  compositionSummary: ReturnType<typeof summarizeOperatorComposition>;
+  compatibilityReason: string;
+  overlayWarning: string | null;
+};
+
+function CompareWorkspace<TTrace>({
+  family,
+  title,
+  open,
+  windowKinds,
+  onOpenWindow,
+  onCloseWindow,
+  onMoveWindow,
+  options,
+  activeMethodId,
+  onPromoteMethod,
+  primarySpec,
+  overlaySpec,
+  splitItems,
+  linkedCamera,
+  analyzeNode,
+  rightSplitMethodId,
+  onAssignRightSplitMethod,
+  overlayMethodIds,
+  onToggleOverlayMethod,
+  composeSelection,
+  onAddComposeMethod,
+  onRemoveComposeMethod,
+  onMoveComposeMethod,
+  compositionMode,
+  onChangeCompositionMode,
+  compositionSummary,
+  compatibilityReason,
+  overlayWarning,
+}: CompareWorkspaceProps<TTrace>) {
+  if (!open) return null;
+
+  const copy = compareFamilyCopy[family];
+
+  return (
+    <div className="absolute inset-0 overflow-auto bg-[#061018] text-white">
+      <div className="sticky top-0 z-20 border-b border-white/10 bg-[#07111a]/92 px-4 py-4 backdrop-blur">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8fb0be]">{title}</div>
+            <h2 className="mt-2 text-2xl font-semibold">Workspace</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-[#cfe2ea]">
+              Revit uslubidagi ish maydoni: bitta katta oyna asosiy bo'ladi, qolgan compare va compose oynalarni user o'zi ochadi.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {(Object.keys(workspaceWindowMeta) as CompareWorkspaceWindowKind[]).map((kind) => (
+              <button
+                key={kind}
+                type="button"
+                onClick={() => onOpenWindow(kind)}
+                disabled={windowKinds.includes(kind)}
+                className={`rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] ${
+                  windowKinds.includes(kind) ? "bg-white/10 text-[#6e8794]" : "bg-[#7dd3fc] text-[#08121a]"
+                }`}
+              >
+                {workspaceWindowMeta[kind].label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          {options.map((option) => {
+            const isPrimary = option.id === activeMethodId;
+            const inSplit = option.id === rightSplitMethodId;
+            const inOverlay = overlayMethodIds.includes(option.id);
+            const inCompose = composeSelection.includes(option.id);
+            return (
+              <div
+                key={option.id}
+                className={`min-w-[220px] rounded-2xl border px-3 py-3 ${
+                  isPrimary ? "border-[#7dd3fc] bg-[#0f3041]" : "border-white/10 bg-white/5"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <span className="truncate text-sm font-semibold">{option.name}</span>
+                  <span className="size-2 rounded-full" style={{ background: option.color }} />
+                </div>
+                <div className="mt-2 text-[11px] text-[#a9c2cd]">{option.primaryMetric}</div>
+                <div className="text-[11px] text-[#7fa0ae]">{option.secondaryMetric}</div>
+                <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => onPromoteMethod(option.id)}
+                    className={`rounded-full px-2 py-1 ${isPrimary ? "bg-[#7dd3fc] text-[#08121a]" : "bg-white/8 text-[#dbe9ef]"}`}
+                  >
+                    Primary
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onAssignRightSplitMethod(option.id);
+                      onOpenWindow("split");
+                    }}
+                    className={`rounded-full px-2 py-1 ${inSplit ? "bg-emerald-400/20 text-emerald-100" : "bg-white/8 text-[#dbe9ef]"}`}
+                  >
+                    Split
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onToggleOverlayMethod(option.id);
+                      onOpenWindow("overlay");
+                    }}
+                    className={`rounded-full px-2 py-1 ${inOverlay ? "bg-amber-400/20 text-amber-100" : "bg-white/8 text-[#dbe9ef]"}`}
+                  >
+                    Overlay
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onAddComposeMethod(option.id);
+                      onOpenWindow("compose");
+                    }}
+                    className={`rounded-full px-2 py-1 ${inCompose ? "bg-fuchsia-400/20 text-fuchsia-100" : "bg-white/8 text-[#dbe9ef]"}`}
+                  >
+                    Compose
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className={`grid ${windowGridClass(windowKinds.length)} gap-4 p-4`}>
+        {windowKinds.map((kind, index) => (
+          <div
+            key={kind}
+            className={`min-h-[360px] overflow-hidden rounded-3xl border border-white/10 bg-[#0a1620] shadow-2xl ${
+              index === 0 ? "xl:col-span-2" : ""
+            }`}
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
+              <div>
+                <div className="text-sm font-semibold text-white">{workspaceWindowMeta[kind].label}</div>
+                <div className="mt-1 text-xs text-[#8fb0be]">{workspaceWindowMeta[kind].description}</div>
+              </div>
+              <div className="flex gap-2 text-[11px] font-semibold">
+                <button type="button" onClick={() => onMoveWindow(kind, "left")} className="rounded-full bg-white/8 px-2 py-1 text-[#dbe9ef]">
+                  Left
+                </button>
+                <button type="button" onClick={() => onMoveWindow(kind, "right")} className="rounded-full bg-white/8 px-2 py-1 text-[#dbe9ef]">
+                  Right
+                </button>
+                {kind !== "primary" ? (
+                  <button type="button" onClick={() => onCloseWindow(kind)} className="rounded-full bg-rose-400/15 px-2 py-1 text-rose-100">
+                    Close
+                  </button>
+                ) : null}
+              </div>
+            </div>
+
+            {kind === "primary" ? (
+              <div className="relative h-[calc(100%-4.25rem)] min-h-[320px]">
+                <VisualScene spec={primarySpec} cameraMode="follow-spec" className="absolute inset-0" />
+              </div>
+            ) : null}
+
+            {kind === "analyze" ? <div className="h-[calc(100%-4.25rem)] overflow-auto p-4">{analyzeNode}</div> : null}
+
+            {kind === "split" ? (
+              rightSplitMethodId ? (
+                <div className="h-[calc(100%-4.25rem)]">
+                  <SplitCompareScenes items={splitItems} linkedCamera={linkedCamera} />
+                </div>
+              ) : (
+                <div className="p-4">
+                  <p className="text-sm leading-6 text-[#cfe2ea]">{copy.split}</p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {options.filter((option) => option.id !== activeMethodId).map((option) => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => onAssignRightSplitMethod(option.id)}
+                        className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white"
+                      >
+                        {option.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )
+            ) : null}
+
+            {kind === "overlay" ? (
+              <div className="relative h-[calc(100%-4.25rem)] min-h-[320px]">
+                <VisualScene spec={overlaySpec} cameraMode="follow-spec" className="absolute inset-0" />
+                <div className="absolute left-4 top-4 flex flex-wrap gap-2">
+                  {overlayMethodIds.length > 0 ? (
+                    overlayMethodIds.map((methodId) => {
+                      const option = options.find((item) => item.id === methodId);
+                      if (!option) return null;
+                      return (
+                        <button
+                          key={methodId}
+                          type="button"
+                          onClick={() => onToggleOverlayMethod(methodId)}
+                          className="rounded-full border border-amber-300/25 bg-amber-400/10 px-3 py-1.5 text-xs font-medium text-white"
+                        >
+                          {option.name}
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div className="rounded-2xl bg-black/35 px-3 py-2 text-xs text-[#dbe9ef]">Overlay uchun metod tanlang.</div>
+                  )}
+                </div>
+                {overlayWarning ? (
+                  <div className="absolute bottom-4 left-4 max-w-md rounded-2xl bg-amber-300/15 px-3 py-2 text-xs leading-5 text-amber-100">
+                    {overlayWarning}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {kind === "compose" ? (
+              <div className="h-[calc(100%-4.25rem)] overflow-auto p-4">
+                <div className="flex flex-wrap gap-2">
+                  {(["pipeline", "fused"] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => onChangeCompositionMode(mode)}
+                      className={`rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] ${
+                        compositionMode === mode ? "bg-[#7dd3fc] text-[#08121a]" : "bg-white/8 text-[#cde2eb]"
+                      }`}
+                    >
+                      {mode}
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  {composeSelection.length > 0 ? (
+                    composeSelection.map((methodId, itemIndex) => {
+                      const option = options.find((item) => item.id === methodId);
+                      if (!option) return null;
+                      return (
+                        <div key={`${methodId}-${itemIndex}`} className="rounded-2xl border border-white/10 bg-white/6 px-3 py-3">
+                          <div className="flex items-start gap-3">
+                            <span className="rounded-full bg-[#7dd3fc] px-2 py-1 text-[11px] font-semibold text-[#08121a]">{itemIndex + 1}</span>
+                            <div className="min-w-[150px]">
+                              <div className="flex items-center gap-2">
+                                <span className="truncate text-sm font-semibold">{option.name}</span>
+                                <span className="size-2 rounded-full" style={{ background: option.color }} />
+                              </div>
+                              <div className="mt-1 text-[11px] text-[#8fb0be]">{option.primaryMetric}</div>
+                            </div>
+                          </div>
+                          <div className="mt-3 flex gap-2 text-[11px] font-semibold">
+                            <button type="button" onClick={() => onMoveComposeMethod(methodId, "left")} className="rounded-full bg-white/8 px-2 py-1 text-[#cde2eb]">
+                              Left
+                            </button>
+                            <button type="button" onClick={() => onMoveComposeMethod(methodId, "right")} className="rounded-full bg-white/8 px-2 py-1 text-[#cde2eb]">
+                              Right
+                            </button>
+                            <button type="button" onClick={() => onRemoveComposeMethod(methodId)} className="rounded-full bg-rose-400/15 px-2 py-1 text-rose-100">
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-white/10 px-4 py-4 text-sm text-[#8fb0be]">
+                      Methodlarni yuqoridagi chiplar orqali Compose ga qo'shing.
+                    </div>
+                  )}
+                </div>
+                <div className="mt-4 rounded-2xl bg-black/20 p-3 text-xs leading-5 text-[#cde2eb]">
+                  <div>{compatibilityReason}</div>
+                  <div className="mt-2 text-[#8fb0be]">
+                    operators={compositionSummary.operatorCount} connections={compositionSummary.connectionCount} cross-family={compositionSummary.isCrossFamily ? "yes" : "no"}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SplitCompareScenes({
+  items,
+  linkedCamera,
+}: {
+  items: CompareSceneItem[];
+  linkedCamera: boolean;
+}) {
+  const [cameraPose, setCameraPose] = useState<VisualSceneCameraPoseState | null>(null);
+
+  return (
+    <div className="grid h-full auto-rows-fr gap-3 p-4 lg:grid-cols-2">
+      {items.map((item) => (
+        <div key={item.id} className="relative min-h-[260px] overflow-hidden rounded-2xl border border-white/10 bg-[#0b1620]">
+          <VisualScene
+            spec={item.spec}
+            cameraMode="preserve"
+            className="absolute inset-0"
+            syncedCameraPose={linkedCamera ? cameraPose : null}
+            onCameraPoseChange={linkedCamera ? setCameraPose : undefined}
+          />
+          <div className="pointer-events-none absolute left-3 top-3 flex flex-wrap gap-2">
+            <span className="rounded-full px-3 py-1 text-[11px] font-semibold text-[#08121a]" style={{ background: item.color }}>
+              {item.name}
+            </span>
+            <span className="rounded-full bg-black/35 px-3 py-1 text-[11px] font-semibold text-[#e7f3f8]">{item.subtitle}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function MatrixLab({ onOpenFamily }: { onOpenFamily: (familyId: string) => void }) {
   const [viewMode, setViewMode] = useState<"2d" | "3d">("2d");
   const [expandedPanel, setExpandedPanel] = useState<"main" | "secondary" | "residual" | "diagnostics" | null>(null);
@@ -1502,6 +2421,12 @@ function MatrixLab({ onOpenFamily }: { onOpenFamily: (familyId: string) => void 
   const [showTransform, setShowTransform] = useState(true);
   const [showResidual, setShowResidual] = useState(true);
   const [showComparison, setShowComparison] = useState(true);
+  const [openMethodTabs, setOpenMethodTabs] = useState<string[]>(["jacobi"]);
+  const [dockedMethodTabId, setDockedMethodTabId] = useState<string | null>(null);
+  const [dockSide, setDockSide] = useState<DockSide>("right");
+  const [composeSelection, setComposeSelection] = useState<string[]>([]);
+  const [compositionMode, setCompositionMode] = useState<OperatorCompositionMode>("pipeline");
+  const [cameraLinkEnabled, setCameraLinkEnabled] = useState(true);
 
   const customMethod = useMemo(() => compileCustomMatrixMethod(customMethodInput), [customMethodInput]);
   const presetMethod = matrixMethods.find((item) => item.id === methodId) ?? matrixMethods[0]!;
@@ -1518,21 +2443,129 @@ function MatrixLab({ onOpenFamily }: { onOpenFamily: (familyId: string) => void 
     () => matrixMethods.filter((item) => item.id !== presetMethod.id && item.mode === method.mode).map((item) => buildMatrixTrace(item, example, { iterations })),
     [example, iterations, method.mode, presetMethod.id],
   );
+  const comparisonMethodIds = useMemo(() => comparisonTraces.map((item) => item.metadata.methodId), [comparisonTraces]);
+  const filteredComparisonTraces = useMemo(() => comparisonTraces, [comparisonTraces]);
   const sceneSpec = useMemo(
     () =>
-      createOperatorFamilySceneSpec({
-        familyName: "Matrix / linear algebra",
-        visualGrammar: "transform-basis",
-        schemeName: method.name,
-        formula: `${example.shortName}: ${method.formula}`,
-        summary: example.interpretation,
-        normalizedInput: `${example.name} ${method.name}`.toLowerCase(),
-        confidence: 0.96,
-        showAnalysis: showTransform,
-        showComparison,
+      createMatrixTraceSceneSpec(trace, {
+        showBasis: showTransform,
+        showOrbit: true,
+        showComparison: false,
+        comparisonTraces: [],
       }),
-    [example.interpretation, example.name, example.shortName, method.formula, method.name, showComparison, showTransform],
+    [showTransform, trace],
   );
+  const compareOptions = useMemo<CompareMethodOption<ReturnType<typeof buildMatrixTrace>>[]>(
+    () => [
+      {
+        id: method.id,
+        name: method.name,
+        color: method.color,
+        trace,
+        artifact: createMatrixWorkbenchArtifact(trace),
+        primaryMetric: `res ${trace.steps.at(-1)!.residual.toExponential(1)}`,
+        secondaryMetric: trace.convergenceKind,
+      },
+      ...comparisonTraces.map((item) => ({
+        id: item.metadata.methodId,
+        name: item.metadata.methodName,
+        color: matrixMethodColor(item.metadata.methodId),
+        trace: item,
+        artifact: createMatrixWorkbenchArtifact(item),
+        primaryMetric: `res ${item.steps.at(-1)!.residual.toExponential(1)}`,
+        secondaryMetric: item.convergenceKind,
+      })),
+    ],
+    [comparisonTraces, method.color, method.id, method.name, trace],
+  );
+  const composeArtifacts = useMemo(
+    () =>
+      composeSelection
+        .map((methodId) => compareOptions.find((item) => item.id === methodId)?.artifact ?? null)
+        .filter((item): item is OperatorWorkbenchArtifact => item !== null),
+    [compareOptions, composeSelection],
+  );
+  const composition = useMemo(
+    () =>
+      composeArtifacts.length > 0
+        ? createCompositionFromWorkbenchArtifacts(composeArtifacts, operatorRegistry, {
+            mode: compositionMode,
+            nodeIds: composeArtifacts.map((item, index) => `${item.methodId}-${index}`),
+          })
+        : null,
+    [composeArtifacts, compositionMode],
+  );
+  const compositionCompatibility = useMemo(
+    () =>
+      composeArtifacts.length > 0
+        ? evaluateWorkbenchCompatibility(composeArtifacts, compositionMode)
+        : null,
+    [composeArtifacts, compositionMode],
+  );
+  const compositionSummary = useMemo(
+    () => (composition ? summarizeOperatorComposition(composition) : EMPTY_COMPOSITION_SUMMARY),
+    [composition],
+  );
+  const availableTabIds = useMemo(() => new Set([method.id, ...comparisonMethodIds]), [comparisonMethodIds, method.id]);
+  const visibleMethodTabs = useMemo(
+    () => openMethodTabs.filter((tabId) => availableTabIds.has(tabId)),
+    [availableTabIds, openMethodTabs],
+  );
+  const workspaceTabs = useMemo<MethodTabWorkspaceOption[]>(
+    () =>
+      visibleMethodTabs
+        .map((tabId) => compareOptions.find((item) => item.id === tabId) ?? null)
+        .filter((item): item is CompareMethodOption<ReturnType<typeof buildMatrixTrace>> => item !== null)
+        .map((item) => ({ id: item.id, name: item.name, color: item.color })),
+    [compareOptions, visibleMethodTabs],
+  );
+
+  function openMatrixMethodTab(nextMethodId: MatrixMethodId) {
+    setUseCustomMethod(false);
+    setMethodId(nextMethodId);
+    setOpenMethodTabs((current) => (current.includes(nextMethodId) ? current : [...current, nextMethodId]));
+  }
+
+  function closeMatrixMethodTab(tabId: string) {
+    setOpenMethodTabs((current) => {
+      const next = current.filter((item) => item !== tabId);
+      if (dockedMethodTabId === tabId) setDockedMethodTabId(null);
+      if (tabId === method.id) {
+        const fallback = next.at(-1);
+        if (fallback) {
+          setUseCustomMethod(false);
+          setMethodId(fallback as MatrixMethodId);
+        }
+      }
+      return next.length > 0 ? next : [method.id];
+    });
+  }
+
+  function renderMatrixTabPanel(tabId: string) {
+    const tabTrace = tabId === method.id ? trace : comparisonTraces.find((item) => item.metadata.methodId === tabId) ?? trace;
+    if (viewMode === "3d") {
+      const tabSceneSpec = createMatrixTraceSceneSpec(tabTrace, {
+        showBasis: showTransform,
+        showOrbit: true,
+        showComparison: false,
+      });
+      return <VisualScene spec={tabSceneSpec} cameraMode="follow-spec" className="h-full w-full" />;
+    }
+    return (
+      <div className="h-full overflow-auto bg-[#eff5f6] p-5">
+        <MatrixAnalyzeView
+          comparisonTraces={[]}
+          example={example}
+          expandedPanel={expandedPanel}
+          onExpandPanel={setExpandedPanel}
+          showComparison={false}
+          showResidual={showResidual}
+          showTransform={showTransform}
+          trace={tabTrace}
+        />
+      </div>
+    );
+  }
   const finalStep = trace.steps.at(-1)!;
   const matrixResearchScore = Math.max(0, Math.min(100, 100 - Math.min(40, Math.log10(finalStep.residual + 1e-12) * 12 + 40) - trace.turnCount * 2 - Math.min(20, trace.finalRayleighError * 15)));
   const statusMeta =
@@ -1568,10 +2601,7 @@ function MatrixLab({ onOpenFamily }: { onOpenFamily: (familyId: string) => void 
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => {
-                      setMethodId(item.id);
-                      setUseCustomMethod(false);
-                    }}
+                    onClick={() => openMatrixMethodTab(item.id)}
                     className={`min-h-10 rounded border px-3 text-left text-sm font-medium ${
                       !useCustomMethod && item.id === presetMethod.id ? "border-[#14222b] bg-[#14222b] text-white" : "border-[#cfd9dd] bg-white hover:bg-[#eef4f5]"
                     }`}
@@ -1661,7 +2691,6 @@ function MatrixLab({ onOpenFamily }: { onOpenFamily: (familyId: string) => void 
               <div className="grid grid-cols-2 gap-2">
                 <ToggleButton active={showTransform} icon={<Layers size={16} />} label="Transform" onClick={() => setShowTransform((value) => !value)} />
                 <ToggleButton active={showResidual} icon={<Activity size={16} />} label="Residual" onClick={() => setShowResidual((value) => !value)} />
-                <ToggleButton active={showComparison} icon={<GitCompare size={16} />} label="Compare" onClick={() => setShowComparison((value) => !value)} />
               </div>
             </div>
 
@@ -1723,9 +2752,16 @@ function MatrixLab({ onOpenFamily }: { onOpenFamily: (familyId: string) => void 
                 Method comparison
               </div>
               <div className="mt-3 space-y-2 text-xs">
-                {[trace, ...comparisonTraces].map((item) => (
-                  <div key={item.metadata.methodId} className="grid grid-cols-[1fr_auto_auto] items-center gap-2 rounded border border-[#e2e8f0] px-2 py-2">
-                    <span className="truncate font-medium text-[#31424b]">{item.metadata.methodName}</span>
+                {[trace, ...filteredComparisonTraces].map((item) => (
+                  <div
+                    key={item.metadata.methodId}
+                    className={`grid grid-cols-[1fr_auto_auto] items-center gap-2 rounded border px-2 py-2 ${
+                      item.metadata.methodId === trace.metadata.methodId ? "border-[#7dd3fc] bg-[#eef9ff]" : "border-[#e2e8f0]"
+                    }`}
+                  >
+                    <button type="button" onClick={() => openMatrixMethodTab(item.metadata.methodId as MatrixMethodId)} className="truncate text-left font-medium text-[#31424b]">
+                      {item.metadata.methodName}
+                    </button>
                     <span className="font-mono text-[#0f766e]">r {item.steps.at(-1)!.residual.toExponential(1)}</span>
                     <span className="font-mono text-[#be185d]">{item.convergenceKind}</span>
                   </div>
@@ -1766,33 +2802,22 @@ function MatrixLab({ onOpenFamily }: { onOpenFamily: (familyId: string) => void 
           </div>
         </aside>
 
-        <div className={`order-1 min-h-0 lg:order-2 ${viewMode === "3d" ? "relative overflow-hidden bg-[#07131d]" : "overflow-auto bg-[#eff5f6] p-5"}`}>
-          {viewMode === "3d" ? (
-            <>
-              <VisualScene spec={sceneSpec} cameraMode="follow-spec" className="absolute inset-0" />
-              <div className="pointer-events-none absolute left-4 top-4 flex max-w-[calc(100%-2rem)] flex-wrap gap-2 text-xs font-medium">
-                <span className="rounded px-2 py-1 text-[#111827]" style={{ background: method.color }}>{method.name}</span>
-                <span className="rounded bg-[#dbeafe] px-2 py-1 text-[#0c4a6e]">k={trace.iterations}</span>
-                <span className="rounded bg-[#dcfce7] px-2 py-1 text-[#166534]">rho≈{trace.spectralRadius.toFixed(2)}</span>
-                <span className="rounded bg-[#fef3c7] px-2 py-1 text-[#92400e]">cond {Number.isFinite(trace.conditionNumber) ? trace.conditionNumber.toFixed(2) : "inf"}</span>
-                <span className={`rounded px-2 py-1 ${statusMeta.className}`}>{statusMeta.label}</span>
-              </div>
-              <div className="pointer-events-none absolute bottom-4 left-4 max-w-xl rounded bg-black/35 px-3 py-2 text-sm leading-6 text-[#d7e3ea] backdrop-blur-sm">
-                3D explore basis deformatsiya va iterative orbitani ko'rsatadi. Asosiy tahlil esa default 2D analyze ichida.
-              </div>
-            </>
-          ) : (
-            <MatrixAnalyzeView
-              comparisonTraces={comparisonTraces}
-              example={example}
-              expandedPanel={expandedPanel}
-              onExpandPanel={setExpandedPanel}
-              showComparison={showComparison}
-              showResidual={showResidual}
-              showTransform={showTransform}
-              trace={trace}
-            />
-          )}
+        <div className={`order-1 min-h-0 lg:order-2 ${viewMode === "3d" ? "overflow-hidden bg-[#07131d]" : "overflow-hidden bg-[#eff5f6]"}`}>
+          <MethodTabWorkspace
+            tabs={workspaceTabs}
+            activeTabId={method.id}
+            dockedTabId={dockedMethodTabId}
+            dockSide={dockSide}
+            onActivateTab={(tabId) => openMatrixMethodTab(tabId as MatrixMethodId)}
+            onCloseTab={closeMatrixMethodTab}
+            onDockTab={(tabId, side) => {
+              if (tabId === method.id) return;
+              setDockedMethodTabId(tabId);
+              setDockSide(side);
+            }}
+            onUndockTab={() => setDockedMethodTabId(null)}
+            renderPanel={renderMatrixTabPanel}
+          />
         </div>
       </section>
     </main>
@@ -1809,6 +2834,12 @@ function RootFindingLab({ onOpenFamily }: { onOpenFamily: (familyId: string) => 
   const [showGuides, setShowGuides] = useState(true);
   const [showResidual, setShowResidual] = useState(true);
   const [showComparison, setShowComparison] = useState(true);
+  const [openMethodTabs, setOpenMethodTabs] = useState<string[]>(["bisection"]);
+  const [dockedMethodTabId, setDockedMethodTabId] = useState<string | null>(null);
+  const [dockSide, setDockSide] = useState<DockSide>("right");
+  const [composeSelection, setComposeSelection] = useState<string[]>([]);
+  const [compositionMode, setCompositionMode] = useState<OperatorCompositionMode>("pipeline");
+  const [cameraLinkEnabled, setCameraLinkEnabled] = useState(true);
 
   const customMethod = useMemo(() => compileCustomRootFindingMethod(customMethodInput), [customMethodInput]);
   const presetMethod = rootFindingMethods.find((item) => item.id === methodId) ?? rootFindingMethods[0]!;
@@ -1824,21 +2855,134 @@ function RootFindingLab({ onOpenFamily }: { onOpenFamily: (familyId: string) => 
     () => rootFindingMethods.filter((item) => item.id !== presetMethod.id).map((item) => buildRootFindingTrace(item, example, { iterations })),
     [example, iterations, presetMethod.id],
   );
+  const filteredComparisonTraces = useMemo(() => comparisonTraces, [comparisonTraces]);
   const sceneSpec = useMemo(
     () =>
-      createOperatorFamilySceneSpec({
-        familyName: "Root finding",
-        visualGrammar: "convergence-path",
-        schemeName: method.name,
-        formula: `${example.equation}; ${method.formula}`,
-        summary: example.interpretation,
-        normalizedInput: `${example.equation} ${method.name}`.toLowerCase(),
-        confidence: 0.95,
-        showAnalysis: showGuides,
-        showComparison,
+      createRootFindingTraceSceneSpec(trace, {
+        showCurve: true,
+        showBracket: showGuides,
+        showComparison: false,
+        comparisonTraces: [],
+        equation: example.equation,
+        xRange: example.xRange,
+        evaluate: example.evaluate,
+        exactRoot: example.exactRoot,
       }),
-    [example.equation, example.interpretation, method.formula, method.name, showComparison, showGuides],
+    [example.equation, example.evaluate, example.exactRoot, example.xRange, showGuides, trace],
   );
+  const compareOptions = useMemo<CompareMethodOption<ReturnType<typeof buildRootFindingTrace>>[]>(
+    () => [
+      {
+        id: method.id,
+        name: method.name,
+        color: method.color,
+        trace,
+        artifact: createRootFindingWorkbenchArtifact(trace, [], {
+          equation: example.equation,
+          xRange: example.xRange,
+          evaluate: example.evaluate,
+          exactRoot: example.exactRoot,
+        }),
+        primaryMetric: `|f| ${trace.finalResidual.toExponential(1)}`,
+        secondaryMetric: `err ${trace.finalError.toExponential(1)}`,
+      },
+      ...comparisonTraces.map((item) => ({
+        id: item.metadata.methodId,
+        name: item.metadata.methodName,
+        color: rootMethodColor(item.metadata.methodId),
+        trace: item,
+        artifact: createRootFindingWorkbenchArtifact(item, [], {
+          equation: example.equation,
+          xRange: example.xRange,
+          evaluate: example.evaluate,
+          exactRoot: example.exactRoot,
+        }),
+        primaryMetric: `|f| ${item.finalResidual.toExponential(1)}`,
+        secondaryMetric: `err ${item.finalError.toExponential(1)}`,
+      })),
+    ],
+    [comparisonTraces, example.equation, example.evaluate, example.exactRoot, example.xRange, method.color, method.id, method.name, trace],
+  );
+  const composeArtifacts = useMemo(
+    () =>
+      composeSelection
+        .map((methodId) => compareOptions.find((item) => item.id === methodId)?.artifact ?? null)
+        .filter((item): item is OperatorWorkbenchArtifact => item !== null),
+    [compareOptions, composeSelection],
+  );
+  const composition = useMemo(
+    () =>
+      composeArtifacts.length > 0
+        ? createCompositionFromWorkbenchArtifacts(composeArtifacts, operatorRegistry, {
+            mode: compositionMode,
+            nodeIds: composeArtifacts.map((item, index) => `${item.methodId}-${index}`),
+          })
+        : null,
+    [composeArtifacts, compositionMode],
+  );
+  const compositionCompatibility = useMemo(
+    () =>
+      composeArtifacts.length > 0
+        ? evaluateWorkbenchCompatibility(composeArtifacts, compositionMode)
+        : null,
+    [composeArtifacts, compositionMode],
+  );
+  const compositionSummary = useMemo(
+    () => (composition ? summarizeOperatorComposition(composition) : EMPTY_COMPOSITION_SUMMARY),
+    [composition],
+  );
+  const availableTabIds = useMemo(() => new Set([method.id, ...comparisonTraces.map((item) => item.metadata.methodId)]), [comparisonTraces, method.id]);
+  const visibleMethodTabs = useMemo(() => openMethodTabs.filter((tabId) => availableTabIds.has(tabId)), [availableTabIds, openMethodTabs]);
+  const workspaceTabs = useMemo<MethodTabWorkspaceOption[]>(
+    () =>
+      visibleMethodTabs
+        .map((tabId) => compareOptions.find((item) => item.id === tabId) ?? null)
+        .filter((item): item is CompareMethodOption<ReturnType<typeof buildRootFindingTrace>> => item !== null)
+        .map((item) => ({ id: item.id, name: item.name, color: item.color })),
+    [compareOptions, visibleMethodTabs],
+  );
+
+  function openRootMethodTab(nextMethodId: RootFindingMethodId) {
+    setUseCustomMethod(false);
+    setMethodId(nextMethodId);
+    setOpenMethodTabs((current) => (current.includes(nextMethodId) ? current : [...current, nextMethodId]));
+  }
+
+  function closeRootMethodTab(tabId: string) {
+    setOpenMethodTabs((current) => {
+      const next = current.filter((item) => item !== tabId);
+      if (dockedMethodTabId === tabId) setDockedMethodTabId(null);
+      if (tabId === method.id) {
+        const fallback = next.at(-1);
+        if (fallback) {
+          setUseCustomMethod(false);
+          setMethodId(fallback as RootFindingMethodId);
+        }
+      }
+      return next.length > 0 ? next : [method.id];
+    });
+  }
+
+  function renderRootTabPanel(tabId: string) {
+    const tabTrace = tabId === method.id ? trace : comparisonTraces.find((item) => item.metadata.methodId === tabId) ?? trace;
+    if (viewMode === "3d") {
+      const tabSceneSpec = createRootFindingTraceSceneSpec(tabTrace, {
+        showCurve: true,
+        showBracket: showGuides,
+        showComparison: false,
+        equation: example.equation,
+        xRange: example.xRange,
+        evaluate: example.evaluate,
+        exactRoot: example.exactRoot,
+      });
+      return <VisualScene spec={tabSceneSpec} cameraMode="follow-spec" className="h-full w-full" />;
+    }
+    return (
+      <div className="h-full overflow-auto bg-[#f7f5ef] p-5">
+        <RootFindingAnalyzeView comparisonTraces={[]} example={example} showComparison={false} showGuides={showGuides} showResidual={showResidual} trace={tabTrace} />
+      </div>
+    );
+  }
 
   return (
     <main className="h-screen overflow-hidden bg-[#f4f7f8] text-[#152026]">
@@ -1864,10 +3008,7 @@ function RootFindingLab({ onOpenFamily }: { onOpenFamily: (familyId: string) => 
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => {
-                      setMethodId(item.id);
-                      setUseCustomMethod(false);
-                    }}
+                    onClick={() => openRootMethodTab(item.id)}
                     className={`min-h-10 rounded border px-3 text-left text-sm font-medium ${
                       !useCustomMethod && item.id === presetMethod.id ? "border-[#14222b] bg-[#14222b] text-white" : "border-[#cfd9dd] bg-white hover:bg-[#eef4f5]"
                     }`}
@@ -1951,7 +3092,6 @@ function RootFindingLab({ onOpenFamily }: { onOpenFamily: (familyId: string) => 
               <div className="grid grid-cols-2 gap-2">
                 <ToggleButton active={showGuides} icon={<Layers size={16} />} label="Guides" onClick={() => setShowGuides((value) => !value)} />
                 <ToggleButton active={showResidual} icon={<Activity size={16} />} label="Residual" onClick={() => setShowResidual((value) => !value)} />
-                <ToggleButton active={showComparison} icon={<GitCompare size={16} />} label="Compare" onClick={() => setShowComparison((value) => !value)} />
               </div>
             </div>
 
@@ -1970,9 +3110,16 @@ function RootFindingLab({ onOpenFamily }: { onOpenFamily: (familyId: string) => 
                 Method comparison
               </div>
               <div className="mt-3 space-y-2 text-xs">
-                {[trace, ...comparisonTraces].map((item) => (
-                  <div key={item.metadata.methodId} className="grid grid-cols-[1fr_auto_auto] items-center gap-2 rounded border border-[#e2e8f0] px-2 py-2">
-                    <span className="truncate font-medium text-[#31424b]">{item.metadata.methodName}</span>
+                {[trace, ...filteredComparisonTraces].map((item) => (
+                  <div
+                    key={item.metadata.methodId}
+                    className={`grid grid-cols-[1fr_auto_auto] items-center gap-2 rounded border px-2 py-2 ${
+                      item.metadata.methodId === trace.metadata.methodId ? "border-[#7dd3fc] bg-[#eef9ff]" : "border-[#e2e8f0]"
+                    }`}
+                  >
+                    <button type="button" onClick={() => openRootMethodTab(item.metadata.methodId as RootFindingMethodId)} className="truncate text-left font-medium text-[#31424b]">
+                      {item.metadata.methodName}
+                    </button>
                     <span className="font-mono text-[#0f766e]">f {item.finalResidual.toExponential(1)}</span>
                     <span className="font-mono text-[#be185d]">e {item.finalError.toExponential(1)}</span>
                   </div>
@@ -2004,22 +3151,22 @@ function RootFindingLab({ onOpenFamily }: { onOpenFamily: (familyId: string) => 
           </div>
         </aside>
 
-        <div className={`order-1 min-h-0 lg:order-2 ${viewMode === "3d" ? "relative overflow-hidden bg-[#0d1018]" : "overflow-auto bg-[#f7f5ef] p-5"}`}>
-          {viewMode === "3d" ? (
-            <>
-              <VisualScene spec={sceneSpec} cameraMode="follow-spec" className="absolute inset-0" />
-              <div className="pointer-events-none absolute left-4 top-4 flex max-w-[calc(100%-2rem)] flex-wrap gap-2 text-xs font-medium">
-                <span className="rounded px-2 py-1 text-[#111827]" style={{ background: method.color }}>{method.name}</span>
-                <span className="rounded bg-[#dbeafe] px-2 py-1 text-[#0c4a6e]">k={trace.iterations}</span>
-                <span className="rounded bg-[#dcfce7] px-2 py-1 text-[#166534]">|f|={trace.finalResidual.toExponential(1)}</span>
-              </div>
-              <div className="pointer-events-none absolute bottom-4 left-4 max-w-xl rounded bg-black/35 px-3 py-2 text-sm leading-6 text-[#d7e3ea] backdrop-blur-sm">
-                3D explore convergence yo'lini premium ko'rinishda beradi, lekin real diagnostika 2D analyze ichida aniqroq.
-              </div>
-            </>
-          ) : (
-            <RootFindingAnalyzeView comparisonTraces={comparisonTraces} example={example} showComparison={showComparison} showGuides={showGuides} showResidual={showResidual} trace={trace} />
-          )}
+        <div className={`order-1 min-h-0 lg:order-2 ${viewMode === "3d" ? "overflow-hidden bg-[#0d1018]" : "overflow-hidden bg-[#f7f5ef]"}`}>
+          <MethodTabWorkspace
+            tabs={workspaceTabs}
+            activeTabId={method.id}
+            dockedTabId={dockedMethodTabId}
+            dockSide={dockSide}
+            onActivateTab={(tabId) => openRootMethodTab(tabId as RootFindingMethodId)}
+            onCloseTab={closeRootMethodTab}
+            onDockTab={(tabId, side) => {
+              if (tabId === method.id) return;
+              setDockedMethodTabId(tabId);
+              setDockSide(side);
+            }}
+            onUndockTab={() => setDockedMethodTabId(null)}
+            renderPanel={renderRootTabPanel}
+          />
         </div>
       </section>
     </main>
@@ -2036,6 +3183,12 @@ function InterpolationLab({ onOpenFamily }: { onOpenFamily: (familyId: string) =
   const [showExact, setShowExact] = useState(true);
   const [showError, setShowError] = useState(true);
   const [showComparison, setShowComparison] = useState(true);
+  const [openMethodTabs, setOpenMethodTabs] = useState<string[]>(["lagrange"]);
+  const [dockedMethodTabId, setDockedMethodTabId] = useState<string | null>(null);
+  const [dockSide, setDockSide] = useState<DockSide>("right");
+  const [composeSelection, setComposeSelection] = useState<string[]>([]);
+  const [compositionMode, setCompositionMode] = useState<OperatorCompositionMode>("pipeline");
+  const [cameraLinkEnabled, setCameraLinkEnabled] = useState(true);
 
   const customMethod = useMemo(() => compileCustomInterpolationMethod(customMethodInput), [customMethodInput]);
   const presetMethod = interpolationMethods.find((item) => item.id === methodId) ?? interpolationMethods[0]!;
@@ -2051,21 +3204,130 @@ function InterpolationLab({ onOpenFamily }: { onOpenFamily: (familyId: string) =
     () => interpolationMethods.filter((item) => item.id !== presetMethod.id).map((item) => buildInterpolationTrace(item, example, { nodeCount })),
     [example, nodeCount, presetMethod.id],
   );
+  const filteredComparisonTraces = useMemo(() => comparisonTraces, [comparisonTraces]);
   const sceneSpec = useMemo(
     () =>
-      createOperatorFamilySceneSpec({
-        familyName: "Interpolation / approximation",
-        visualGrammar: "curve-reconstruction",
-        schemeName: method.name,
-        formula: `${example.formula}; ${method.formula}`,
-        summary: example.interpretation,
-        normalizedInput: `${example.formula} ${method.name}`.toLowerCase(),
-        confidence: 0.95,
-        showAnalysis: showExact,
-        showComparison,
+      createInterpolationTraceSceneSpec(trace, {
+        showNodes: true,
+        showCurve: showExact,
+        showComparison: false,
+        comparisonTraces: [],
+        formula: example.formula,
+        xRange: example.xRange,
+        yRange: example.yRange,
       }),
-    [example.formula, example.interpretation, method.formula, method.name, showComparison, showExact],
+    [example.formula, example.xRange, example.yRange, showExact, trace],
   );
+  const compareOptions = useMemo<CompareMethodOption<ReturnType<typeof buildInterpolationTrace>>[]>(
+    () => [
+      {
+        id: method.id,
+        name: method.name,
+        color: method.color,
+        trace,
+        artifact: createInterpolationWorkbenchArtifact(trace, [], {
+          formula: example.formula,
+          xRange: example.xRange,
+          yRange: example.yRange,
+        }),
+        primaryMetric: `max ${trace.maxAbsError.toExponential(1)}`,
+        secondaryMetric: `rms ${trace.rmsError.toExponential(1)}`,
+      },
+      ...comparisonTraces.map((item) => ({
+        id: item.metadata.methodId,
+        name: item.metadata.methodName,
+        color: interpolationMethodColor(item.metadata.methodId),
+        trace: item,
+        artifact: createInterpolationWorkbenchArtifact(item, [], {
+          formula: example.formula,
+          xRange: example.xRange,
+          yRange: example.yRange,
+        }),
+        primaryMetric: `max ${item.maxAbsError.toExponential(1)}`,
+        secondaryMetric: `rms ${item.rmsError.toExponential(1)}`,
+      })),
+    ],
+    [comparisonTraces, example.formula, example.xRange, example.yRange, method.color, method.id, method.name, trace],
+  );
+  const composeArtifacts = useMemo(
+    () =>
+      composeSelection
+        .map((methodId) => compareOptions.find((item) => item.id === methodId)?.artifact ?? null)
+        .filter((item): item is OperatorWorkbenchArtifact => item !== null),
+    [compareOptions, composeSelection],
+  );
+  const composition = useMemo(
+    () =>
+      composeArtifacts.length > 0
+        ? createCompositionFromWorkbenchArtifacts(composeArtifacts, operatorRegistry, {
+            mode: compositionMode,
+            nodeIds: composeArtifacts.map((item, index) => `${item.methodId}-${index}`),
+          })
+        : null,
+    [composeArtifacts, compositionMode],
+  );
+  const compositionCompatibility = useMemo(
+    () =>
+      composeArtifacts.length > 0
+        ? evaluateWorkbenchCompatibility(composeArtifacts, compositionMode)
+        : null,
+    [composeArtifacts, compositionMode],
+  );
+  const compositionSummary = useMemo(
+    () => (composition ? summarizeOperatorComposition(composition) : EMPTY_COMPOSITION_SUMMARY),
+    [composition],
+  );
+  const availableTabIds = useMemo(() => new Set([method.id, ...comparisonTraces.map((item) => item.metadata.methodId)]), [comparisonTraces, method.id]);
+  const visibleMethodTabs = useMemo(() => openMethodTabs.filter((tabId) => availableTabIds.has(tabId)), [availableTabIds, openMethodTabs]);
+  const workspaceTabs = useMemo<MethodTabWorkspaceOption[]>(
+    () =>
+      visibleMethodTabs
+        .map((tabId) => compareOptions.find((item) => item.id === tabId) ?? null)
+        .filter((item): item is CompareMethodOption<ReturnType<typeof buildInterpolationTrace>> => item !== null)
+        .map((item) => ({ id: item.id, name: item.name, color: item.color })),
+    [compareOptions, visibleMethodTabs],
+  );
+
+  function openInterpolationMethodTab(nextMethodId: InterpolationMethodId) {
+    setUseCustomMethod(false);
+    setMethodId(nextMethodId);
+    setOpenMethodTabs((current) => (current.includes(nextMethodId) ? current : [...current, nextMethodId]));
+  }
+
+  function closeInterpolationMethodTab(tabId: string) {
+    setOpenMethodTabs((current) => {
+      const next = current.filter((item) => item !== tabId);
+      if (dockedMethodTabId === tabId) setDockedMethodTabId(null);
+      if (tabId === method.id) {
+        const fallback = next.at(-1);
+        if (fallback) {
+          setUseCustomMethod(false);
+          setMethodId(fallback as InterpolationMethodId);
+        }
+      }
+      return next.length > 0 ? next : [method.id];
+    });
+  }
+
+  function renderInterpolationTabPanel(tabId: string) {
+    const tabTrace = tabId === method.id ? trace : comparisonTraces.find((item) => item.metadata.methodId === tabId) ?? trace;
+    if (viewMode === "3d") {
+      const tabSceneSpec = createInterpolationTraceSceneSpec(tabTrace, {
+        showNodes: true,
+        showCurve: showExact,
+        showComparison: false,
+        formula: example.formula,
+        xRange: example.xRange,
+        yRange: example.yRange,
+      });
+      return <VisualScene spec={tabSceneSpec} cameraMode="follow-spec" className="h-full w-full" />;
+    }
+    return (
+      <div className="h-full overflow-auto bg-[#f3f8f8] p-5">
+        <InterpolationAnalyzeView comparisonTraces={[]} example={example} showComparison={false} showError={showError} showExact={showExact} trace={tabTrace} />
+      </div>
+    );
+  }
 
   return (
     <main className="h-screen overflow-hidden bg-[#f4f7f8] text-[#152026]">
@@ -2091,10 +3353,7 @@ function InterpolationLab({ onOpenFamily }: { onOpenFamily: (familyId: string) =
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => {
-                      setMethodId(item.id);
-                      setUseCustomMethod(false);
-                    }}
+                    onClick={() => openInterpolationMethodTab(item.id)}
                     className={`min-h-10 rounded border px-3 text-left text-sm font-medium ${
                       !useCustomMethod && item.id === presetMethod.id ? "border-[#14222b] bg-[#14222b] text-white" : "border-[#cfd9dd] bg-white hover:bg-[#eef4f5]"
                     }`}
@@ -2178,7 +3437,6 @@ function InterpolationLab({ onOpenFamily }: { onOpenFamily: (familyId: string) =
               <div className="grid grid-cols-2 gap-2">
                 <ToggleButton active={showExact} icon={<Waves size={16} />} label="Exact" onClick={() => setShowExact((value) => !value)} />
                 <ToggleButton active={showError} icon={<Activity size={16} />} label="Error" onClick={() => setShowError((value) => !value)} />
-                <ToggleButton active={showComparison} icon={<GitCompare size={16} />} label="Compare" onClick={() => setShowComparison((value) => !value)} />
               </div>
             </div>
 
@@ -2197,9 +3455,16 @@ function InterpolationLab({ onOpenFamily }: { onOpenFamily: (familyId: string) =
                 Method comparison
               </div>
               <div className="mt-3 space-y-2 text-xs">
-                {[trace, ...comparisonTraces].map((item) => (
-                  <div key={item.metadata.methodId} className="grid grid-cols-[1fr_auto_auto] items-center gap-2 rounded border border-[#e2e8f0] px-2 py-2">
-                    <span className="truncate font-medium text-[#31424b]">{item.metadata.methodName}</span>
+                {[trace, ...filteredComparisonTraces].map((item) => (
+                  <div
+                    key={item.metadata.methodId}
+                    className={`grid grid-cols-[1fr_auto_auto] items-center gap-2 rounded border px-2 py-2 ${
+                      item.metadata.methodId === trace.metadata.methodId ? "border-[#7dd3fc] bg-[#eef9ff]" : "border-[#e2e8f0]"
+                    }`}
+                  >
+                    <button type="button" onClick={() => openInterpolationMethodTab(item.metadata.methodId as InterpolationMethodId)} className="truncate text-left font-medium text-[#31424b]">
+                      {item.metadata.methodName}
+                    </button>
                     <span className="font-mono text-[#0f766e]">max {item.maxAbsError.toExponential(1)}</span>
                     <span className="font-mono text-[#be185d]">rms {item.rmsError.toExponential(1)}</span>
                   </div>
@@ -2231,22 +3496,22 @@ function InterpolationLab({ onOpenFamily }: { onOpenFamily: (familyId: string) =
           </div>
         </aside>
 
-        <div className={`order-1 min-h-0 lg:order-2 ${viewMode === "3d" ? "relative overflow-hidden bg-[#0a1418]" : "overflow-auto bg-[#f3f8f8] p-5"}`}>
-          {viewMode === "3d" ? (
-            <>
-              <VisualScene spec={sceneSpec} cameraMode="follow-spec" className="absolute inset-0" />
-              <div className="pointer-events-none absolute left-4 top-4 flex max-w-[calc(100%-2rem)] flex-wrap gap-2 text-xs font-medium">
-                <span className="rounded px-2 py-1 text-[#111827]" style={{ background: method.color }}>{method.name}</span>
-                <span className="rounded bg-[#dbeafe] px-2 py-1 text-[#0c4a6e]">n={trace.nodeCount}</span>
-                <span className="rounded bg-[#dcfce7] px-2 py-1 text-[#166534]">max {trace.maxAbsError.toExponential(1)}</span>
-              </div>
-              <div className="pointer-events-none absolute bottom-4 left-4 max-w-xl rounded bg-black/35 px-3 py-2 text-sm leading-6 text-[#d7e3ea] backdrop-blur-sm">
-                3D explore curve reconstruction grammatikasini ko'rsatadi, lekin haqiqiy error va oscillation tahlili 2D ko'rinishda kuchliroq.
-              </div>
-            </>
-          ) : (
-            <InterpolationAnalyzeView comparisonTraces={comparisonTraces} example={example} showComparison={showComparison} showError={showError} showExact={showExact} trace={trace} />
-          )}
+        <div className={`order-1 min-h-0 lg:order-2 ${viewMode === "3d" ? "overflow-hidden bg-[#0a1418]" : "overflow-hidden bg-[#f3f8f8]"}`}>
+          <MethodTabWorkspace
+            tabs={workspaceTabs}
+            activeTabId={method.id}
+            dockedTabId={dockedMethodTabId}
+            dockSide={dockSide}
+            onActivateTab={(tabId) => openInterpolationMethodTab(tabId as InterpolationMethodId)}
+            onCloseTab={closeInterpolationMethodTab}
+            onDockTab={(tabId, side) => {
+              if (tabId === method.id) return;
+              setDockedMethodTabId(tabId);
+              setDockSide(side);
+            }}
+            onUndockTab={() => setDockedMethodTabId(null)}
+            renderPanel={renderInterpolationTabPanel}
+          />
         </div>
       </section>
     </main>

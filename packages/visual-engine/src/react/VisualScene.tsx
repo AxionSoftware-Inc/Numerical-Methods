@@ -4,7 +4,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { VisualSceneSpec } from "../core";
 import { applyVisualSceneStyle, renderVisualSceneSpec } from "./renderVisualScene";
-import { VisualViewportControls } from "./VisualViewportControls";
+import { VisualViewportControls, type VisualCameraPose } from "./VisualViewportControls";
+
+export type VisualSceneCameraPoseState = {
+  position: [number, number, number];
+  target: [number, number, number];
+};
 
 export type VisualSceneProps = {
   spec: VisualSceneSpec;
@@ -26,6 +31,8 @@ export type VisualSceneProps = {
    * Useful for frame capture/export adapters.
    */
   onCanvasReady?: (canvas: HTMLCanvasElement | null) => void;
+  syncedCameraPose?: VisualSceneCameraPoseState | null;
+  onCameraPoseChange?: (pose: VisualSceneCameraPoseState) => void;
 
   className?: string;
 };
@@ -55,6 +62,8 @@ export function VisualScene({
   cameraResetKey,
   cameraMode = "preserve",
   onCanvasReady,
+  syncedCameraPose,
+  onCameraPoseChange,
   className,
 }: VisualSceneProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -62,12 +71,18 @@ export function VisualScene({
   const onCanvasReadyRef = useRef(onCanvasReady);
   const previousResetKeyRef = useRef<string | undefined>(undefined);
   const previousContentKeyRef = useRef<string | null>(null);
+  const onCameraPoseChangeRef = useRef(onCameraPoseChange);
+  const appliedPoseKeyRef = useRef<string | null>(null);
   const [hover, setHover] = useState<HoverInfo | null>(null);
   const [renderError, setRenderError] = useState<string | null>(null);
 
   useEffect(() => {
     onCanvasReadyRef.current = onCanvasReady;
   }, [onCanvasReady]);
+
+  useEffect(() => {
+    onCameraPoseChangeRef.current = onCameraPoseChange;
+  }, [onCameraPoseChange]);
 
   const contentKey = useMemo(() => createSceneContentKey(spec), [spec]);
 
@@ -153,6 +168,12 @@ export function VisualScene({
     const render = (now: number) => {
       if (now - runtime.lastRenderTime >= PREVIEW_RENDER_INTERVAL_MS) {
         controls.update();
+        const poseState = toPoseState(controls.getPose());
+        const poseKey = poseStateKey(poseState);
+        if (poseKey !== appliedPoseKeyRef.current) {
+          appliedPoseKeyRef.current = poseKey;
+          onCameraPoseChangeRef.current?.(poseState);
+        }
         renderer.render(scene, camera);
         runtime.lastRenderTime = now;
       }
@@ -247,6 +268,18 @@ export function VisualScene({
     runtime.controls.update();
   }, [cameraMode, cameraResetKey, contentKey, spec]);
 
+  useEffect(() => {
+    const runtime = runtimeRef.current;
+    if (!runtime || !syncedCameraPose) return;
+    const nextPoseKey = poseStateKey(syncedCameraPose);
+    if (nextPoseKey === appliedPoseKeyRef.current) return;
+    runtime.controls.setPose(
+      new THREE.Vector3(...syncedCameraPose.position),
+      new THREE.Vector3(...syncedCameraPose.target),
+    );
+    appliedPoseKeyRef.current = nextPoseKey;
+  }, [syncedCameraPose]);
+
   return (
     <div ref={mountRef} className={className}>
       {renderError ? (
@@ -275,6 +308,17 @@ export function VisualScene({
       ) : null}
     </div>
   );
+}
+
+function toPoseState(pose: VisualCameraPose): VisualSceneCameraPoseState {
+  return {
+    position: [pose.position.x, pose.position.y, pose.position.z],
+    target: [pose.target.x, pose.target.y, pose.target.z],
+  };
+}
+
+function poseStateKey(pose: VisualSceneCameraPoseState) {
+  return [...pose.position, ...pose.target].map((value) => value.toFixed(4)).join(",");
 }
 
 function formatLayerTitle(layerId: string): string {

@@ -31,6 +31,7 @@ export type {
 } from "./PdeScene";
 
 export type {
+  VisualSceneCameraPoseState,
   VisualSceneProps,
 } from "./VisualScene";
 
